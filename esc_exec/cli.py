@@ -9,6 +9,7 @@ from esc_exec.manifests import generate_gradle_manifests, overall_exit_code, val
 from esc_exec.opencode_adapter import OpenCodeAdapter, OpenCodeClient, OpenCodeError
 from esc_exec.registry import add_route, default_registry_path, read_registry, resolve_route, validate_registry
 from esc_exec.reporting import summarize_junit
+from esc_exec.task_context import build_task_context, build_verification_plan, generate_gradle_verification_profile
 
 
 def _registry_path(raw: str | None) -> Path:
@@ -71,6 +72,28 @@ def build_parser() -> argparse.ArgumentParser:
     report_summarize.add_argument("source", type=Path)
     report_summarize.add_argument("output", type=Path)
     report_summarize.add_argument("--full-report-path")
+
+    context = subcommands.add_parser("context", help="Build bounded task-specific routing context")
+    context_commands = context.add_subparsers(dest="context_command", required=True)
+    context_build = context_commands.add_parser("build")
+    context_build.add_argument("repository")
+    context_build.add_argument("task", type=Path)
+    context_build.add_argument("output", type=Path)
+    context_build.add_argument("--max-components", type=int, default=10)
+    context_build.add_argument("--max-paths", type=int, default=30)
+    context_build.add_argument("--max-references", type=int, default=30)
+
+    verification = subcommands.add_parser("verification", help="Manage progressive verification plans")
+    verification_commands = verification.add_subparsers(dest="verification_command", required=True)
+    profile = verification_commands.add_parser("profile")
+    profile_commands = profile.add_subparsers(dest="profile_command", required=True)
+    profile_generate = profile_commands.add_parser("generate")
+    profile_generate.add_argument("repository")
+    profile_generate.add_argument("component")
+    verification_plan = verification_commands.add_parser("plan")
+    verification_plan.add_argument("repository")
+    verification_plan.add_argument("task", type=Path)
+    verification_plan.add_argument("output", type=Path)
 
     opencode = subcommands.add_parser("opencode", help="Run the OpenCode reference adapter")
     opencode_commands = opencode.add_subparsers(dest="opencode_command", required=True)
@@ -169,6 +192,29 @@ def main(argv: list[str] | None = None) -> int:
             f"summary={args.output} full={document['full_report']['path']}"
         )
         return 0
+
+    if args.command in {"context", "verification"}:
+        try:
+            repository = _resolve_repository(args.repository, registry)
+            if args.command == "context":
+                document = build_task_context(
+                    repository, args.task, args.output,
+                    args.max_components, args.max_paths, args.max_references,
+                )
+                print(
+                    f"GENERATED  {args.output} "
+                    f"components={len(document['routing']['components'])}"
+                )
+            elif args.verification_command == "profile":
+                print(f"GENERATED  {generate_gradle_verification_profile(repository, args.component)}")
+            else:
+                document = build_verification_plan(repository, args.task, args.output)
+                statuses = ", ".join(f"{gate['id']}={gate['status']}" for gate in document["gates"])
+                print(f"GENERATED  {args.output} {statuses}")
+            return 0
+        except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
+            print(f"INCOMPLETE {exc}")
+            return 2
 
     if args.command == "opencode":
         adapter = OpenCodeAdapter(OpenCodeClient(args.server), registry)

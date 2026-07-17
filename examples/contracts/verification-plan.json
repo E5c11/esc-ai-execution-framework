@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "task_id": "task-index-review",
+  "profiles": ["content/esc-verification-profile.yaml"],
+  "strategy": {
+    "order": ["focused", "component", "impact", "final"],
+    "stop_on_failure": true
+  },
+  "gates": [
+    {
+      "id": "focused",
+      "status": "input-required",
+      "checks": [
+        {
+          "id": "content-focused-tests",
+          "command": ["./gradlew", ":content:test", "--tests", "{test_filter}"],
+          "requires": ["test_filter"]
+        }
+      ]
+    },
+    {
+      "id": "component",
+      "status": "ready",
+      "checks": [{"id": "content-tests", "command": ["./gradlew", ":content:test"]}]
+    },
+    {"id": "impact", "status": "not-applicable", "checks": []},
+    {
+      "id": "final",
+      "status": "ready",
+      "checks": [{"id": "repository-tests", "command": ["./gradlew", "test"]}]
+    }
+  ]
+}

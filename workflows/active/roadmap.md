@@ -37,8 +37,8 @@ build the efficiency capabilities one vertical slice at a time.
 | 4 | [OpenCode reference adapter](../archive/opencode-reference-adapter.md) | Resolve a repo, load manifests, start/observe/resume a small OpenCode-backed run | Complete — local models unavailable |
 | 5 | Central orchestrator bootstrap | Separate control-plane repository with HTTP submission/observation, SQLite persistence, scheduling, and a replaceable runtime boundary | Complete |
 | 6 | [Compact test and report summaries](../archive/compact-verification-reports.md) | Bounded structured verification results with full artifacts retained | Complete |
-| 7 | Task context and progressive verification | Task-specific context plus focused → component → impact → final gates | **Next** |
-| 8 | Executable architecture checks | Deterministic rule enforcement with stable rule IDs | Pending |
+| 7 | [Task context and progressive verification](../archive/task-context-and-progressive-verification.md) | Task-specific context plus focused → component → impact → final gates | Complete |
+| 8 | Executable architecture checks | Deterministic rule enforcement with stable rule IDs | **Next** |
 | 9 | Durable checkpoints | Another agent/person can resume incomplete work without reconstructing history | Pending |
 | 10 | Dependency graph and impact analysis | Generated consumer relationships drive appropriate verification scope | Pending |
 | 11 | Execution-efficiency measurement | Evidence for token, tool-call, elapsed-time, and rework improvements | Pending |

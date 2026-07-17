@@ -10,10 +10,10 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from esc_exec.contracts import validate_contract
-from esc_exec.indexing import match_components
 from esc_exec.json_io import write_json
 from esc_exec.model import ManifestState
 from esc_exec.registry import resolve_route
+from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
 
 READ_ONLY_TOOLS = {"read": True, "list": True, "glob": True, "grep": True, "bash": False, "edit": False, "write": False, "patch": False, "webfetch": False, "task": False, "todowrite": False, "todoread": False}
@@ -65,18 +65,16 @@ class OpenCodeAdapter:
         if workspace["repository"] != task["repository"]: raise ValueError("Workspace repository must match task repository")
         repository = resolve_route(self.registry_path, "repositories", task["repository"])
         self.client.health(repository)
-        matches = match_components(repository, task["objective"])
-        declared = set(task_doc["scope"]["components"])
-        routing = next((match for match in matches if match.component_id in declared), matches[0] if matches else None)
-        if session_id is None: session_id = self.client.create_session(repository, task["title"])["id"]
         run_id, created_at = f"run-{uuid.uuid4().hex}", _now()
         run_dir = output_root / run_id
         run_dir.mkdir(parents=True, exist_ok=False)
+        context = build_task_context(repository, task_path, run_dir / "task-context.json")
+        if session_id is None: session_id = self.client.create_session(repository, task["title"])["id"]
         events: list[dict[str, Any]] = []
         self._event(events, run_id, "run.started", "orchestrator", {"task_id": task["id"]})
         artifact_name: str | None = None
         try:
-            response = self.client.prompt(repository, session_id, self._prompt(task_doc, routing), adapter.get("configuration", {}).get("model"))
+            response = self.client.prompt(repository, session_id, self._prompt(context), adapter.get("configuration", {}).get("model"))
             if response.get("info", {}).get("error"):
                 raise OpenCodeError(str(response["info"]["error"])[:500])
             summary, tools = self._summarize(response)
@@ -102,9 +100,18 @@ class OpenCodeAdapter:
         return self.client.fork(resolve_route(self.registry_path, "repositories", repository_id), session_id)["id"]
 
     @staticmethod
-    def _prompt(task: dict[str, Any], routing: Any) -> str:
-        lines = [f"Objective: {task['task']['objective']}", "Operate read-only. Do not edit files, run shell commands, or access the network.", f"Declared components: {', '.join(task['scope']['components'])}."]
-        if routing: lines += [f"Repository routing selected component: {routing.component_id}.", f"Read its index first: {routing.index}."]
+    def _prompt(context: dict[str, Any]) -> str:
+        components = context["routing"]["components"]
+        lines = [
+            f"Objective: {context['task']['objective']}",
+            "Operate read-only. Do not edit files, run shell commands, or access the network.",
+            f"Declared components: {', '.join(component['id'] for component in components)}.",
+            f"Read the repository index first: {context['routing']['repository_index']}.",
+        ]
+        for component in components:
+            lines.append(f"Then read {component['index']} for component {component['id']}; search only: {', '.join(component['search_roots'])}.")
+        if context["scope"]["paths"]:
+            lines.append(f"Task paths: {', '.join(context['scope']['paths'])}.")
         return "\n".join(lines + ["Return a concise evidence-based result."])
 
     @staticmethod

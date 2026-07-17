@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/verification-plan-v1.schema.json",
+  "title": "ESC AI Verification Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "profiles", "strategy", "gates"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "task_id": {"type": "string"},
+    "profiles": {"type": "array", "items": {"type": "string"}},
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "stop_on_failure"],
+      "properties": {
+        "order": {"const": ["focused", "component", "impact", "final"]},
+        "stop_on_failure": {"const": true}
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "checks"],
+        "properties": {
+          "id": {"enum": ["focused", "component", "impact", "final"]},
+          "status": {"enum": ["ready", "input-required", "not-applicable"]},
+          "checks": {"type": "array"}
+        }
+      }
+    }
+  }
+}

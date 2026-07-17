@@ -19,6 +19,8 @@ CONTRACT_FORMATS = {
     "artifact": "json",
     "event": "jsonl",
     "verification-summary": "json",
+    "task-context": "json",
+    "verification-plan": "json",
 }
 
 REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
@@ -36,6 +38,17 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
         "totals": ("tests", "passed", "failed", "errors", "skipped", "duration_ms"),
         "truncation": ("failures_included", "failures_omitted", "max_failures", "max_message_chars"),
         "full_report": ("path", "media_type"),
+    },
+    "task-context": {
+        "root": ("schema_version", "task", "routing", "scope", "bounds"),
+        "task": ("id", "repository", "objective"),
+        "routing": ("repository_index", "components"),
+        "scope": ("paths", "references", "completion_conditions"),
+        "bounds": ("max_components", "max_paths", "max_references"),
+    },
+    "verification-plan": {
+        "root": ("schema_version", "task_id", "profiles", "strategy", "gates"),
+        "strategy": ("order", "stop_on_failure"),
     },
 }
 
@@ -190,6 +203,40 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
             report_path = _value_at(document, "full_report.path")
             if isinstance(report_path, str) and Path(report_path).is_absolute():
                 messages.append(prefix + "full_report.path must be workspace-relative")
+        if kind == "task-context":
+            routing_components = _value_at(document, "routing.components")
+            bounds = document.get("bounds", {})
+            for field in ("max_components", "max_paths", "max_references"):
+                if not isinstance(bounds.get(field), int) or bounds[field] < (1 if field == "max_components" else 0):
+                    messages.append(prefix + f"bounds.{field} has an invalid limit")
+            if not isinstance(routing_components, list) or not routing_components:
+                messages.append(prefix + "routing.components must be a non-empty array")
+            elif isinstance(bounds.get("max_components"), int) and len(routing_components) > bounds["max_components"]:
+                messages.append(prefix + "routing.components exceeds bounds.max_components")
+            for field in ("paths", "references"):
+                values = _value_at(document, f"scope.{field}")
+                if not isinstance(values, list) or not all(isinstance(value, str) and not Path(value).is_absolute() for value in values):
+                    messages.append(prefix + f"scope.{field} must contain workspace-relative strings")
+                elif isinstance(bounds.get(f"max_{field}"), int) and len(values) > bounds[f"max_{field}"]:
+                    messages.append(prefix + f"scope.{field} exceeds bounds.max_{field}")
+        if kind == "verification-plan":
+            expected_order = ["focused", "component", "impact", "final"]
+            if _value_at(document, "strategy.order") != expected_order or _value_at(document, "strategy.stop_on_failure") is not True:
+                messages.append(prefix + "strategy must use focused, component, impact, final order and stop on failure")
+            gates = document.get("gates")
+            if not isinstance(gates, list) or [gate.get("id") for gate in gates if isinstance(gate, dict)] != expected_order:
+                messages.append(prefix + "gates must contain the four ordered verification stages")
+            else:
+                for gate in gates:
+                    checks = gate.get("checks")
+                    if gate.get("status") not in {"ready", "input-required", "not-applicable"} or not isinstance(checks, list):
+                        messages.append(prefix + f"gate {gate.get('id')} has invalid status or checks")
+                        continue
+                    if gate["status"] == "not-applicable" and checks:
+                        messages.append(prefix + f"gate {gate['id']} cannot be not-applicable with checks")
+                    for check in checks:
+                        if not isinstance(check, dict) or not check.get("id") or not isinstance(check.get("command"), list) or not check["command"]:
+                            messages.append(prefix + f"gate {gate['id']} contains an invalid check")
     state = ManifestState.INVALID if messages else ManifestState.VALID
     return ValidationResult(state, str(path), messages)
 

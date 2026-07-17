@@ -96,6 +96,11 @@ flow:
 8. Preserve durable decisions and unfinished task state in a committed checkpoint
    associated with the active task.
 
+Generate `task-context.json` before broad repository exploration. Generate
+`verification-plan.json` from the selected components' declared
+`esc-verification-profile.yaml` files, resolve any focused inputs, and process ready
+gates in focused → component → impact → final order. Stop on the first failed gate.
+
 Manifests and indexes narrow initial discovery. They do not prohibit evidence-driven
 scope expansion and are not substitutes for reading source code, tests, or reports
 necessary to complete a task correctly.

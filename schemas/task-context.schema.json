@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/task-context-v1.schema.json",
+  "title": "ESC AI Task Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task", "routing", "scope", "bounds"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "repository", "objective"],
+      "properties": {
+        "id": {"type": "string"},
+        "repository": {"type": "string"},
+        "objective": {"type": "string"}
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository_index", "components"],
+      "properties": {
+        "repository_index": {"type": "string"},
+        "input_digest": {"type": "string"},
+        "components": {"type": "array"}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths", "references", "completion_conditions"],
+      "properties": {
+        "paths": {"type": "array", "items": {"type": "string"}},
+        "references": {"type": "array", "items": {"type": "string"}},
+        "completion_conditions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_components", "max_paths", "max_references"],
+      "properties": {
+        "max_components": {"type": "integer", "minimum": 1},
+        "max_paths": {"type": "integer", "minimum": 0},
+        "max_references": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

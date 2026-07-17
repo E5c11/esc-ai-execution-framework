@@ -7,7 +7,8 @@ from esc_exec.contracts import validate_contract
 from esc_exec.model import ManifestState
 from esc_exec.opencode_adapter import OpenCodeAdapter
 from esc_exec.registry import add_route
-from esc_exec.json_io import write_json
+from esc_exec.indexing import generate_indexes
+from esc_exec.yaml_io import write_yaml
 
 
 class FakeOpenCodeClient:
@@ -31,8 +32,18 @@ class OpenCodeAdapterTests(unittest.TestCase):
     def _repository(root: Path) -> Path:
         repository = root / "repo"
         (repository / "content").mkdir(parents=True)
-        write_json(repository / "esc-index.json", {"components": [{"id": "content", "purpose": "Owns lesson publishing.", "path": "content", "index": "content/esc-index.json", "routing": {"domains": ["lessons"], "concerns": ["publishing"], "aliases": []}}]})
-        write_json(repository / "content/esc-index.json", {"search_roots": ["content/src/main/kotlin"]})
+        write_yaml(repository / "esc-execution.yaml", {
+            "schema_version": 1,
+            "repository": {"id": "ampm-backend", "type": "gradle-multi-project", "purpose": "test"},
+            "components": [{"id": "content", "manifest": "content/esc-component.yaml"}],
+        })
+        write_yaml(repository / "content/esc-component.yaml", {
+            "schema_version": 1,
+            "component": {"id": "content", "type": "gradle-module", "path": "content", "purpose": "Owns lesson publishing."},
+            "build": {"system": "gradle", "project": ":content"},
+            "paths": {"source": "src/main/kotlin"},
+        })
+        generate_indexes(repository)
         return repository
 
     def test_execute_emits_valid_portable_contracts(self):
@@ -51,6 +62,7 @@ class OpenCodeAdapterTests(unittest.TestCase):
             self.assertEqual(ManifestState.VALID, validate_contract("run", run_dir / "run.json").state)
             self.assertEqual(ManifestState.VALID, validate_contract("event", run_dir / "events.jsonl").state)
             self.assertEqual(ManifestState.VALID, validate_contract("artifact", run_dir / "artifact.json").state)
+            self.assertEqual(ManifestState.VALID, validate_contract("task-context", run_dir / "task-context.json").state)
             run = json.loads((run_dir / "run.json").read_text())
             self.assertEqual("ses-created", run["adapter_metadata"]["session_id"])
             self.assertIn("content/esc-index.json", client.prompts[0])
