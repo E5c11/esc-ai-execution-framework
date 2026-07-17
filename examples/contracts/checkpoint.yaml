@@ -1,0 +1,19 @@
+schema_version: 1
+checkpoint:
+  id: checkpoint-index-review
+  task_id: task-index-review
+  run_id: run-index-review-001
+  status: ready-to-resume
+  objective: Confirm routing and document any mismatches.
+  updated_at: "2026-07-17T12:00:03Z"
+progress:
+  completed:
+    - Loaded the repository index.
+  decisions:
+    - JSON remains the only committed index representation.
+  remaining:
+    - Review any routing mismatch.
+  blockers: []
+  artifacts:
+    - artifact-index-review
+  last_event_sequence: 3

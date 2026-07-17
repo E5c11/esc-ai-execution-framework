@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run": {
+    "id": "run-index-review-001",
+    "task_id": "task-index-review",
+    "status": "succeeded",
+    "created_at": "2026-07-17T12:00:00Z",
+    "started_at": "2026-07-17T12:00:01Z",
+    "ended_at": "2026-07-17T12:00:03Z"
+  },
+  "bindings": {
+    "adapter": "opencode-local",
+    "workspace": "workspace-ampm-readonly",
+    "policy": "readonly-review"
+  },
+  "events": "events.jsonl",
+  "artifacts": ["artifact.json"],
+  "adapter_metadata": {
+    "session_id": "provider-session-example"
+  }
+}
+

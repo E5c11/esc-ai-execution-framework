@@ -1,0 +1,26 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://esc.ai/schemas/execution/policy-v1.schema.yaml
+title: ESC AI Execution Policy
+type: object
+additionalProperties: false
+required: [schema_version, policy, permissions]
+properties:
+  schema_version: {const: 1}
+  policy:
+    type: object
+    additionalProperties: false
+    required: [id, description]
+    properties:
+      id: {type: string, minLength: 1}
+      description: {type: string, minLength: 1}
+  permissions:
+    type: object
+    additionalProperties: {enum: [allow, ask, deny]}
+  limits:
+    type: object
+    additionalProperties: false
+    properties:
+      max_parallel_agents: {type: integer, minimum: 1}
+      max_run_seconds: {type: integer, minimum: 1}
+  approvals: {type: array, items: {type: string, minLength: 1}}
+

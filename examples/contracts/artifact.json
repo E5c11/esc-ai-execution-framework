@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "artifact": {
+    "id": "artifact-index-review",
+    "run_id": "run-index-review-001",
+    "kind": "report",
+    "path": ".execution/runs/run-index-review-001/summary.json",
+    "media_type": "application/json",
+    "retention": "transient",
+    "created_at": "2026-07-17T12:00:03Z"
+  }
+}
+

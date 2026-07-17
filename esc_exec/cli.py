@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from esc_exec.contracts import CONTRACT_FORMATS, validate_contract, validate_contract_set
 from esc_exec.indexing import generate_indexes, match_components, validate_indexes
 from esc_exec.manifests import generate_gradle_manifests, overall_exit_code, validate_repository
 from esc_exec.registry import add_route, default_registry_path, read_registry, resolve_route, validate_registry
@@ -52,6 +53,14 @@ def build_parser() -> argparse.ArgumentParser:
     index_match.add_argument("repository")
     index_match.add_argument("query", nargs="+")
     index_match.add_argument("--limit", type=int, default=3)
+
+    contract = subcommands.add_parser("contract", help="Validate provider-neutral execution contracts")
+    contract_commands = contract.add_subparsers(dest="contract_command", required=True)
+    contract_validate = contract_commands.add_parser("validate")
+    contract_validate.add_argument("kind", choices=tuple(CONTRACT_FORMATS))
+    contract_validate.add_argument("path", type=Path)
+    contract_set = contract_commands.add_parser("validate-set")
+    contract_set.add_argument("directory", type=Path)
     return parser
 
 
@@ -111,6 +120,16 @@ def main(argv: list[str] | None = None) -> int:
         for result in results:
             _print_result(result)
         return overall_exit_code(results)
+
+    if args.command == "contract":
+        if args.contract_command == "validate-set":
+            results = validate_contract_set(args.directory)
+            for result in results:
+                _print_result(result)
+            return overall_exit_code(results)
+        result = validate_contract(args.kind, args.path)
+        _print_result(result)
+        return result.exit_code
 
     try:
         repository = _resolve_repository(args.repository, registry)

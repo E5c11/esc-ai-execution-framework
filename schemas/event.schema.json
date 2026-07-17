@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/event-v1.schema.json",
+  "title": "ESC AI Run Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event": {
+      "type": "object",
+      "required": ["id", "run_id", "sequence", "timestamp", "type", "actor", "payload"],
+      "properties": {
+        "id": {"type": "string"}, "run_id": {"type": "string"},
+        "sequence": {"type": "integer", "minimum": 0},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "type": {"enum": ["run.started", "run.status-changed", "message.created", "tool.requested", "tool.completed", "approval.requested", "approval.resolved", "artifact.created", "checkpoint.created", "run.completed", "run.failed"]},
+        "actor": {"enum": ["user", "agent", "orchestrator", "adapter", "tool", "system"]},
+        "payload": {"type": "object"}
+      }
+    }
+  }
+}

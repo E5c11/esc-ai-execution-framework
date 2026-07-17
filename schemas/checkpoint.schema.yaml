@@ -1,0 +1,31 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://esc.ai/schemas/execution/checkpoint-v1.schema.yaml
+title: ESC AI Checkpoint
+type: object
+additionalProperties: false
+required: [schema_version, checkpoint, progress]
+properties:
+  schema_version: {const: 1}
+  checkpoint:
+    type: object
+    additionalProperties: false
+    required: [id, task_id, status, objective]
+    properties:
+      id: {type: string, minLength: 1}
+      task_id: {type: string, minLength: 1}
+      run_id: {type: string, minLength: 1}
+      status: {enum: [active, blocked, ready-to-resume]}
+      objective: {type: string, minLength: 1}
+      updated_at: {type: string, format: date-time}
+  progress:
+    type: object
+    additionalProperties: false
+    required: [completed, decisions, remaining, blockers]
+    properties:
+      completed: {type: array, items: {type: string}}
+      decisions: {type: array, items: {type: string}}
+      remaining: {type: array, items: {type: string}}
+      blockers: {type: array, items: {type: string}}
+      artifacts: {type: array, items: {type: string}}
+      last_event_sequence: {type: integer, minimum: 0}
+

@@ -1,0 +1,15 @@
+schema_version: 1
+policy:
+  id: readonly-review
+  description: Permit repository inspection without mutation or external access.
+permissions:
+  read: allow
+  edit: deny
+  execute: ask
+  network: deny
+  external_paths: deny
+limits:
+  max_parallel_agents: 1
+  max_run_seconds: 900
+approvals: [execute]
+

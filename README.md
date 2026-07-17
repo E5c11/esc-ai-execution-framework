@@ -71,6 +71,9 @@ esc-exec --help
 See [`guides/adopting-a-repository.md`](./guides/adopting-a-repository.md) for the
 complete adoption flow.
 
+Provider-neutral task, run, event, artifact, checkpoint, workspace, adapter, and policy
+contracts are documented in [`guides/execution-contracts.md`](./guides/execution-contracts.md).
+
 Generated indexes are canonical, pretty-printed JSON files named `esc-index.json`.
 There is deliberately no committed Markdown representation; human views are rendered
 on demand by the CLI or future user interfaces.

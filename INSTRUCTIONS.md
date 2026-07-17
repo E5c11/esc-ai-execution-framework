@@ -142,6 +142,15 @@ the vertical slice proves useful.
 Framework development and extension work lives under [`workflows/`](./workflows/).
 Do not place consuming-project feature workflows there.
 
+## Execution Contract Boundary
+
+Portable execution follows `Task specification -> Run -> Events/Artifacts -> terminal
+result or Checkpoint`. Human-authored task specifications, workspaces, adapters,
+policies, and checkpoints use YAML. Generated runs and artifact records use JSON;
+append-only event streams use JSONL. Provider-specific IDs and raw metadata remain
+inside adapter configuration or `adapter_metadata` and must never replace portable
+contract IDs or lifecycle states. See [`guides/execution-contracts.md`](./guides/execution-contracts.md).
+
 ## Current Bootstrap Decisions
 
 - The framework is provider-agnostic.

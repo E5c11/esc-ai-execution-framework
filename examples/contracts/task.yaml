@@ -1,0 +1,20 @@
+schema_version: 1
+task:
+  id: task-index-review
+  title: Review the content routing index
+  objective: Confirm that lesson publishing routes to the content component.
+  repository: ampm-backend
+  status: ready
+scope:
+  components: [content]
+  paths: [esc-index.json, content/esc-index.json]
+execution:
+  workspace: workspace-ampm-readonly
+  adapter: opencode-local
+  policy: readonly-review
+completion_conditions:
+  - The content component is ranked first.
+  - No repository files are modified.
+references:
+  - esc-index.json
+

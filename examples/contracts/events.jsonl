@@ -1,0 +1,5 @@
+{"schema_version":1,"event":{"id":"event-001","run_id":"run-index-review-001","sequence":0,"timestamp":"2026-07-17T12:00:01Z","type":"run.started","actor":"orchestrator","payload":{}}}
+{"schema_version":1,"event":{"id":"event-002","run_id":"run-index-review-001","sequence":1,"timestamp":"2026-07-17T12:00:02Z","type":"message.created","actor":"agent","payload":{"summary":"content ranked first"}}}
+{"schema_version":1,"event":{"id":"event-003","run_id":"run-index-review-001","sequence":2,"timestamp":"2026-07-17T12:00:03Z","type":"artifact.created","actor":"orchestrator","payload":{"artifact_id":"artifact-index-review"}}}
+{"schema_version":1,"event":{"id":"event-004","run_id":"run-index-review-001","sequence":3,"timestamp":"2026-07-17T12:00:03Z","type":"run.completed","actor":"orchestrator","payload":{"status":"succeeded"}}}
+

@@ -1,0 +1,21 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://esc.ai/schemas/execution/workspace-v1.schema.yaml
+title: ESC AI Workspace
+type: object
+additionalProperties: false
+required: [schema_version, workspace]
+properties:
+  schema_version: {const: 1}
+  workspace:
+    type: object
+    additionalProperties: false
+    required: [id, kind, repository, isolation]
+    properties:
+      id: {type: string, minLength: 1}
+      kind: {enum: [local, worktree, container, remote]}
+      repository: {type: string, minLength: 1}
+      isolation: {enum: [none, process, filesystem, container, remote]}
+      base_ref: {type: string, minLength: 1}
+      writable_paths: {type: array, items: {type: string, minLength: 1}}
+      metadata: {type: object}
+

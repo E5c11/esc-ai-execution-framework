@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/run-v1.schema.json",
+  "title": "ESC AI Run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run", "bindings", "events", "artifacts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run": {
+      "type": "object",
+      "required": ["id", "task_id", "status", "created_at"],
+      "properties": {
+        "id": {"type": "string"}, "task_id": {"type": "string"},
+        "parent_run_id": {"type": "string"},
+        "status": {"enum": ["queued", "running", "waiting-approval", "succeeded", "failed", "cancelled", "interrupted"]},
+        "created_at": {"type": "string", "format": "date-time"},
+        "started_at": {"type": "string", "format": "date-time"},
+        "ended_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "bindings": {"type": "object", "required": ["adapter", "workspace", "policy"]},
+    "events": {"type": "string"},
+    "artifacts": {"type": "array", "items": {"type": "string"}},
+    "adapter_metadata": {"type": "object"}
+  }
+}

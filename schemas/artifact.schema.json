@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/artifact-v1.schema.json",
+  "title": "ESC AI Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "artifact": {
+      "type": "object",
+      "required": ["id", "run_id", "kind", "path", "retention", "created_at"],
+      "properties": {
+        "id": {"type": "string"}, "run_id": {"type": "string"},
+        "kind": {"enum": ["log", "report", "diff", "test-results", "coverage", "checkpoint", "other"]},
+        "path": {"type": "string"}, "media_type": {"type": "string"},
+        "digest": {"type": "string"},
+        "retention": {"enum": ["committed", "transient"]},
+        "created_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}
