@@ -21,6 +21,7 @@ CONTRACT_FORMATS = {
     "verification-summary": "json",
     "task-context": "json",
     "verification-plan": "json",
+    "architecture-report": "json",
 }
 
 REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
@@ -50,6 +51,10 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
         "root": ("schema_version", "task_id", "profiles", "strategy", "gates"),
         "strategy": ("order", "stop_on_failure"),
     },
+    "architecture-report": {
+        "root": ("schema_version", "component", "profile", "status", "totals", "results", "generated_at"),
+        "totals": ("rules", "passed", "failed", "violations", "violations_included", "violations_omitted"),
+    },
 }
 
 ENUMS: dict[str, dict[str, set[str]]] = {
@@ -77,6 +82,7 @@ ENUMS: dict[str, dict[str, set[str]]] = {
         "verification.source_format": {"junit-xml"},
         "verification.status": {"passed", "failed", "error"},
     },
+    "architecture-report": {"status": {"passed", "failed"}},
 }
 
 
@@ -237,6 +243,24 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
                     for check in checks:
                         if not isinstance(check, dict) or not check.get("id") or not isinstance(check.get("command"), list) or not check["command"]:
                             messages.append(prefix + f"gate {gate['id']} contains an invalid check")
+        if kind == "architecture-report":
+            totals = document.get("totals", {})
+            fields = ("rules", "passed", "failed", "violations", "violations_included", "violations_omitted")
+            if any(not isinstance(totals.get(field), int) or totals[field] < 0 for field in fields):
+                messages.append(prefix + "architecture totals must be non-negative integers")
+            else:
+                if totals["rules"] < 1 or totals["passed"] + totals["failed"] != totals["rules"]:
+                    messages.append(prefix + "architecture rule totals are inconsistent")
+                if totals["violations_included"] + totals["violations_omitted"] != totals["violations"]:
+                    messages.append(prefix + "architecture violation totals are inconsistent")
+                expected_status = "failed" if totals["failed"] else "passed"
+                if document.get("status") != expected_status:
+                    messages.append(prefix + f"architecture status must be {expected_status}")
+            results = document.get("results")
+            if not isinstance(results, list) or len(results) != totals.get("rules"):
+                messages.append(prefix + "results length must equal totals.rules")
+            elif len({result.get("rule_id") for result in results if isinstance(result, dict)}) != len(results):
+                messages.append(prefix + "result rule IDs must be unique")
     state = ManifestState.INVALID if messages else ManifestState.VALID
     return ValidationResult(state, str(path), messages)
 

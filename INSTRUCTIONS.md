@@ -100,6 +100,9 @@ Generate `task-context.json` before broad repository exploration. Generate
 `verification-plan.json` from the selected components' declared
 `esc-verification-profile.yaml` files, resolve any focused inputs, and process ready
 gates in focused → component → impact → final order. Stop on the first failed gate.
+Run declared architecture fitness functions as part of their component gate and refer
+to violations by stable rule ID. Do not replace a missing architecture profile with
+implicit global rules.
 
 Manifests and indexes narrow initial discovery. They do not prohibit evidence-driven
 scope expansion and are not substitutes for reading source code, tests, or reports

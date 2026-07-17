@@ -38,8 +38,8 @@ build the efficiency capabilities one vertical slice at a time.
 | 5 | Central orchestrator bootstrap | Separate control-plane repository with HTTP submission/observation, SQLite persistence, scheduling, and a replaceable runtime boundary | Complete |
 | 6 | [Compact test and report summaries](../archive/compact-verification-reports.md) | Bounded structured verification results with full artifacts retained | Complete |
 | 7 | [Task context and progressive verification](../archive/task-context-and-progressive-verification.md) | Task-specific context plus focused → component → impact → final gates | Complete |
-| 8 | Executable architecture checks | Deterministic rule enforcement with stable rule IDs | **Next** |
-| 9 | Durable checkpoints | Another agent/person can resume incomplete work without reconstructing history | Pending |
+| 8 | [Executable architecture checks](../archive/executable-architecture-checks.md) | Deterministic rule enforcement with stable rule IDs | Complete |
+| 9 | Durable checkpoints | Another agent/person can resume incomplete work without reconstructing history | **Next** |
 | 10 | Dependency graph and impact analysis | Generated consumer relationships drive appropriate verification scope | Pending |
 | 11 | Execution-efficiency measurement | Evidence for token, tool-call, elapsed-time, and rework improvements | Pending |
 

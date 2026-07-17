@@ -10,6 +10,7 @@ from esc_exec.opencode_adapter import OpenCodeAdapter, OpenCodeClient, OpenCodeE
 from esc_exec.registry import add_route, default_registry_path, read_registry, resolve_route, validate_registry
 from esc_exec.reporting import summarize_junit
 from esc_exec.task_context import build_task_context, build_verification_plan, generate_gradle_verification_profile
+from esc_exec.architecture import check_architecture, generate_architecture_profile
 
 
 def _registry_path(raw: str | None) -> Path:
@@ -94,6 +95,18 @@ def build_parser() -> argparse.ArgumentParser:
     verification_plan.add_argument("repository")
     verification_plan.add_argument("task", type=Path)
     verification_plan.add_argument("output", type=Path)
+
+    architecture = subcommands.add_parser("architecture", help="Run component architecture fitness functions")
+    architecture_commands = architecture.add_subparsers(dest="architecture_command", required=True)
+    architecture_profile = architecture_commands.add_parser("profile")
+    architecture_profile_commands = architecture_profile.add_subparsers(dest="architecture_profile_command", required=True)
+    architecture_profile_generate = architecture_profile_commands.add_parser("generate")
+    architecture_profile_generate.add_argument("repository")
+    architecture_profile_generate.add_argument("component")
+    architecture_check = architecture_commands.add_parser("check")
+    architecture_check.add_argument("repository")
+    architecture_check.add_argument("component")
+    architecture_check.add_argument("output", type=Path)
 
     opencode = subcommands.add_parser("opencode", help="Run the OpenCode reference adapter")
     opencode_commands = opencode.add_subparsers(dest="opencode_command", required=True)
@@ -212,6 +225,24 @@ def main(argv: list[str] | None = None) -> int:
                 statuses = ", ".join(f"{gate['id']}={gate['status']}" for gate in document["gates"])
                 print(f"GENERATED  {args.output} {statuses}")
             return 0
+        except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
+            print(f"INCOMPLETE {exc}")
+            return 2
+
+    if args.command == "architecture":
+        try:
+            repository = _resolve_repository(args.repository, registry)
+            if args.architecture_command == "profile":
+                print(f"GENERATED  {generate_architecture_profile(repository, args.component)}")
+                print("INCOMPLETE Author at least one stable architecture rule before checking.")
+                return 2
+            document = check_architecture(repository, args.component, args.output)
+            totals = document["totals"]
+            print(
+                f"{document['status'].upper():<10} rules={totals['rules']} "
+                f"failed={totals['failed']} violations={totals['violations']} report={args.output}"
+            )
+            return 1 if document["status"] == "failed" else 0
         except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
             print(f"INCOMPLETE {exc}")
             return 2

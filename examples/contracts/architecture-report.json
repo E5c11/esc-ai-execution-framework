@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "component": "content",
+  "profile": "content/esc-architecture-profile.yaml",
+  "status": "passed",
+  "totals": {
+    "rules": 1,
+    "passed": 1,
+    "failed": 0,
+    "violations": 0,
+    "violations_included": 0,
+    "violations_omitted": 0
+  },
+  "results": [
+    {
+      "rule_id": "content.no-portal-imports",
+      "description": "Content must not depend on portal implementation code.",
+      "status": "passed",
+      "violations": [],
+      "violations_omitted": 0
+    }
+  ],
+  "generated_at": "2026-07-17T12:00:03Z"
+}

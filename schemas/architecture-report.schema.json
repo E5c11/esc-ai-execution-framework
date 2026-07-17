@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/architecture-report-v1.schema.json",
+  "title": "ESC AI Architecture Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "component", "profile", "status", "totals", "results", "generated_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "component": {"type": "string"},
+    "profile": {"type": "string"},
+    "status": {"enum": ["passed", "failed"]},
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rules", "passed", "failed", "violations", "violations_included", "violations_omitted"],
+      "properties": {
+        "rules": {"type": "integer", "minimum": 1},
+        "passed": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "violations": {"type": "integer", "minimum": 0},
+        "violations_included": {"type": "integer", "minimum": 0},
+        "violations_omitted": {"type": "integer", "minimum": 0}
+      }
+    },
+    "results": {"type": "array"},
+    "generated_at": {"type": "string", "format": "date-time"}
+  }
+}
