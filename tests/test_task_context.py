@@ -4,6 +4,7 @@ import unittest
 
 from esc_exec.contracts import validate_contract
 from esc_exec.indexing import generate_indexes
+from esc_exec.dependencies import generate_dependency_graph
 from esc_exec.model import ManifestState
 from esc_exec.task_context import (
     build_task_context,
@@ -30,6 +31,7 @@ class TaskContextTests(unittest.TestCase):
             "paths": {"source": "src/main", "tests": "src/test"},
         })
         generate_indexes(self.root)
+        generate_dependency_graph(self.root)
         self.task = self.root / "task.yaml"
         write_yaml(self.task, {
             "schema_version": 1,
@@ -59,6 +61,7 @@ class TaskContextTests(unittest.TestCase):
         profile = generate_gradle_verification_profile(self.root, "content")
         self.assertTrue(profile.is_file())
         generate_indexes(self.root)
+        generate_dependency_graph(self.root)
         plan_path = self.root / "verification-plan.json"
         plan = build_verification_plan(self.root, self.task, plan_path)
         self.assertEqual(

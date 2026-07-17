@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/impact-analysis-v1.schema.json",
+  "title": "ESC AI Impact Analysis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository", "graph", "source_components", "direct_consumers", "transitive_consumers", "affected_components"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "repository": {"type": "string"},
+    "graph": {"const": "esc-dependencies.json"},
+    "source_components": {"type": "array", "items": {"type": "string"}},
+    "direct_consumers": {"type": "array", "items": {"type": "string"}},
+    "transitive_consumers": {"type": "array", "items": {"type": "string"}},
+    "affected_components": {"type": "array", "items": {"type": "string"}}
+  }
+}

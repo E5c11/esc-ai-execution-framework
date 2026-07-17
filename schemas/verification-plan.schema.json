@@ -4,7 +4,7 @@
   "title": "ESC AI Verification Plan",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "task_id", "profiles", "strategy", "gates"],
+  "required": ["schema_version", "task_id", "profiles", "strategy", "impact", "gates"],
   "properties": {
     "schema_version": {"const": 1},
     "task_id": {"type": "string"},
@@ -16,6 +16,16 @@
       "properties": {
         "order": {"const": ["focused", "component", "impact", "final"]},
         "stop_on_failure": {"const": true}
+      }
+    },
+    "impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graph", "source_components", "consumer_components"],
+      "properties": {
+        "graph": {"const": "esc-dependencies.json"},
+        "source_components": {"type": "array", "items": {"type": "string"}},
+        "consumer_components": {"type": "array", "items": {"type": "string"}}
       }
     },
     "gates": {

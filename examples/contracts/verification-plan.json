@@ -6,6 +6,11 @@
     "order": ["focused", "component", "impact", "final"],
     "stop_on_failure": true
   },
+  "impact": {
+    "graph": "esc-dependencies.json",
+    "source_components": ["content"],
+    "consumer_components": ["recommendations"]
+  },
   "gates": [
     {
       "id": "focused",
@@ -23,7 +28,11 @@
       "status": "ready",
       "checks": [{"id": "content-tests", "command": ["./gradlew", ":content:test"]}]
     },
-    {"id": "impact", "status": "not-applicable", "checks": []},
+    {
+      "id": "impact",
+      "status": "ready",
+      "checks": [{"id": "recommendations-tests", "command": ["./gradlew", ":recommendations:test"]}]
+    },
     {
       "id": "final",
       "status": "ready",

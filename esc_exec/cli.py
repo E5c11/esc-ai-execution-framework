@@ -12,6 +12,7 @@ from esc_exec.reporting import summarize_junit
 from esc_exec.task_context import build_task_context, build_verification_plan, generate_gradle_verification_profile
 from esc_exec.architecture import check_architecture, generate_architecture_profile
 from esc_exec.checkpoints import create_checkpoint, inspect_checkpoint, update_checkpoint
+from esc_exec.dependencies import analyze_impact, generate_dependency_graph, validate_dependency_graph
 
 
 def _registry_path(raw: str | None) -> Path:
@@ -132,6 +133,17 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--blocker", action="append", default=[])
         command.add_argument("--artifact", action="append", default=[])
         command.add_argument("--last-event-sequence", type=int)
+
+    dependency = subcommands.add_parser("dependency", help="Generate component dependencies and analyze consumers")
+    dependency_commands = dependency.add_subparsers(dest="dependency_command", required=True)
+    dependency_generate = dependency_commands.add_parser("generate")
+    dependency_generate.add_argument("repository")
+    dependency_validate = dependency_commands.add_parser("validate")
+    dependency_validate.add_argument("repository")
+    dependency_impact = dependency_commands.add_parser("impact")
+    dependency_impact.add_argument("repository")
+    dependency_impact.add_argument("components", nargs="+")
+    dependency_impact.add_argument("--output", type=Path, required=True)
 
     opencode = subcommands.add_parser("opencode", help="Run the OpenCode reference adapter")
     opencode_commands = opencode.add_subparsers(dest="opencode_command", required=True)
@@ -299,6 +311,26 @@ def main(argv: list[str] | None = None) -> int:
         except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
             print(f"INVALID    {exc}")
             return 1
+
+    if args.command == "dependency":
+        try:
+            repository = _resolve_repository(args.repository, registry)
+            if args.dependency_command == "generate":
+                print(f"GENERATED  {generate_dependency_graph(repository)}")
+                return 0
+            if args.dependency_command == "validate":
+                result = validate_dependency_graph(repository)
+                _print_result(result)
+                return result.exit_code
+            document = analyze_impact(repository, args.components, args.output)
+            print(
+                f"IMPACT     sources={','.join(document['source_components'])} "
+                f"consumers={','.join(document['transitive_consumers']) or 'none'} report={args.output}"
+            )
+            return 0
+        except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
+            print(f"INCOMPLETE {exc}")
+            return 2
 
     if args.command == "opencode":
         adapter = OpenCodeAdapter(OpenCodeClient(args.server), registry)

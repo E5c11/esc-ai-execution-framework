@@ -109,6 +109,10 @@ bounded, preserve decisions, reference full artifacts by relative path, and comm
 checkpoint after review. Treat orchestrator failure checkpoints as transient candidates
 until their project-relevant state is deliberately promoted.
 
+Validate `esc-dependencies.json` before impact planning. Use the transitive consumer
+closure to populate the impact gate from consumer-owned verification profiles; never
+silently omit a consumer because its profile is missing.
+
 Manifests and indexes narrow initial discovery. They do not prohibit evidence-driven
 scope expansion and are not substitutes for reading source code, tests, or reports
 necessary to complete a task correctly.

@@ -7,6 +7,7 @@ from esc_exec.indexing import INDEX_FILE, validate_indexes
 from esc_exec.json_io import load_json, write_json
 from esc_exec.yaml_io import load_yaml, write_yaml
 from esc_exec.model import ManifestState
+from esc_exec.dependencies import analyze_impact
 
 
 GATES = ("focused", "component", "impact", "final")
@@ -146,6 +147,36 @@ def build_verification_plan(repository: Path, task_path: Path, output: Path) -> 
                 if command not in seen[gate]:
                     seen[gate].add(command)
                     gate_checks[gate].append(check)
+    impact = analyze_impact(repository, task_document["scope"]["components"])
+    for component_id in impact["transitive_consumers"]:
+        manifest_path = repository / indexed[component_id]["manifest"]
+        manifest = load_yaml(manifest_path)
+        relative_profile = manifest.get("paths", {}).get("verification_profile")
+        if not relative_profile:
+            raise ValueError(
+                f"impacted component {component_id} has no paths.verification_profile; run: "
+                f"esc-exec verification profile generate {task['repository']} {component_id}"
+            )
+        relative_profile_path = Path(relative_profile)
+        if relative_profile_path.is_absolute() or ".." in relative_profile_path.parts:
+            raise ValueError(f"verification profile must be owned by component {component_id}")
+        profile_path = manifest_path.parent / relative_profile_path
+        profile = load_yaml(profile_path)
+        if profile.get("schema_version") != 1 or profile.get("profile", {}).get("component") != component_id:
+            raise ValueError(f"invalid verification profile for impacted component {component_id}")
+        relative_profile_value = str(profile_path.relative_to(repository))
+        if relative_profile_value not in profiles:
+            profiles.append(relative_profile_value)
+        checks = profile.get("gates", {}).get("component")
+        if not isinstance(checks, list):
+            raise ValueError(f"verification profile {profile_path} must define gate component")
+        for check in checks:
+            command = tuple(check.get("command", []))
+            if not check.get("id") or not command:
+                raise ValueError(f"verification profile {profile_path} contains an invalid component check")
+            if command not in seen["impact"]:
+                seen["impact"].add(command)
+                gate_checks["impact"].append(check)
     gates = []
     for gate in GATES:
         checks = gate_checks[gate]
@@ -156,6 +187,11 @@ def build_verification_plan(repository: Path, task_path: Path, output: Path) -> 
         "task_id": task["id"],
         "profiles": profiles,
         "strategy": {"order": list(GATES), "stop_on_failure": True},
+        "impact": {
+            "graph": impact["graph"],
+            "source_components": impact["source_components"],
+            "consumer_components": impact["transitive_consumers"],
+        },
         "gates": gates,
     }
     write_json(output, document)

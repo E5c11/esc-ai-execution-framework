@@ -22,6 +22,8 @@ class ContractTests(unittest.TestCase):
             "task-context": examples / "task-context.json",
             "verification-plan": examples / "verification-plan.json",
             "architecture-report": examples / "architecture-report.json",
+            "dependency-graph": examples / "dependency-graph.json",
+            "impact-analysis": examples / "impact-analysis.json",
         }
         self.assertEqual(set(CONTRACT_FORMATS), set(paths))
         for kind, path in paths.items():

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/dependency-graph-v1.schema.json",
+  "title": "ESC AI Component Dependency Graph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_by", "input_digest", "repository", "nodes", "edges"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "generated_by": {"const": "esc-exec"},
+    "input_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "repository": {"type": "string"},
+    "nodes": {"type": "array"},
+    "edges": {"type": "array"}
+  }
+}

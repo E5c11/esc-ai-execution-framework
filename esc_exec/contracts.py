@@ -22,6 +22,8 @@ CONTRACT_FORMATS = {
     "task-context": "json",
     "verification-plan": "json",
     "architecture-report": "json",
+    "dependency-graph": "json",
+    "impact-analysis": "json",
 }
 
 REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
@@ -48,12 +50,19 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
         "bounds": ("max_components", "max_paths", "max_references"),
     },
     "verification-plan": {
-        "root": ("schema_version", "task_id", "profiles", "strategy", "gates"),
+        "root": ("schema_version", "task_id", "profiles", "strategy", "impact", "gates"),
         "strategy": ("order", "stop_on_failure"),
+        "impact": ("graph", "source_components", "consumer_components"),
     },
     "architecture-report": {
         "root": ("schema_version", "component", "profile", "status", "totals", "results", "generated_at"),
         "totals": ("rules", "passed", "failed", "violations", "violations_included", "violations_omitted"),
+    },
+    "dependency-graph": {
+        "root": ("schema_version", "generated_by", "input_digest", "repository", "nodes", "edges"),
+    },
+    "impact-analysis": {
+        "root": ("schema_version", "repository", "graph", "source_components", "direct_consumers", "transitive_consumers", "affected_components"),
     },
 }
 
@@ -279,6 +288,30 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
                 messages.append(prefix + "results length must equal totals.rules")
             elif len({result.get("rule_id") for result in results if isinstance(result, dict)}) != len(results):
                 messages.append(prefix + "result rule IDs must be unique")
+        if kind == "dependency-graph":
+            nodes = document.get("nodes")
+            edges = document.get("edges")
+            if not isinstance(nodes, list) or not all(isinstance(node, dict) and node.get("id") and node.get("project") for node in nodes):
+                messages.append(prefix + "dependency nodes must contain IDs and Gradle projects")
+            elif len({node["id"] for node in nodes}) != len(nodes):
+                messages.append(prefix + "dependency node IDs must be unique")
+            if not isinstance(edges, list):
+                messages.append(prefix + "dependency edges must be an array")
+            elif isinstance(nodes, list):
+                node_ids = {node.get("id") for node in nodes if isinstance(node, dict)}
+                for edge in edges:
+                    if not isinstance(edge, dict) or edge.get("consumer") not in node_ids or edge.get("dependency") not in node_ids:
+                        messages.append(prefix + "dependency edges must reference declared nodes")
+                        break
+        if kind == "impact-analysis":
+            sources = document.get("source_components")
+            direct = document.get("direct_consumers")
+            transitive = document.get("transitive_consumers")
+            affected = document.get("affected_components")
+            if not all(isinstance(values, list) and all(isinstance(value, str) for value in values) for values in (sources, direct, transitive, affected)):
+                messages.append(prefix + "impact component fields must be string arrays")
+            elif set(affected) != set(sources) | set(transitive) or not set(direct) <= set(transitive):
+                messages.append(prefix + "impact component sets are inconsistent")
     state = ManifestState.INVALID if messages else ManifestState.VALID
     return ValidationResult(state, str(path), messages)
 

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "generated_by": "esc-exec",
+  "input_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "repository": "ampm-backend",
+  "nodes": [
+    {"id": "content", "project": ":content", "manifest": "content/esc-component.yaml"},
+    {"id": "recommendations", "project": ":recommendations", "manifest": "recommendations/esc-component.yaml"}
+  ],
+  "edges": [
+    {"consumer": "recommendations", "dependency": "content", "configuration": "implementation", "source": "recommendations/build.gradle.kts"}
+  ]
+}

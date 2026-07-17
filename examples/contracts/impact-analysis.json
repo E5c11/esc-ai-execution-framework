@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "repository": "ampm-backend",
+  "graph": "esc-dependencies.json",
+  "source_components": ["content"],
+  "direct_consumers": ["recommendations"],
+  "transitive_consumers": ["recommendations"],
+  "affected_components": ["content", "recommendations"]
+}

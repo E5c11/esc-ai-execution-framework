@@ -81,6 +81,8 @@ Component-owned architecture fitness functions are documented in
 [`guides/executable-architecture-checks.md`](./guides/executable-architecture-checks.md).
 Committed task handoffs and transient failed-run candidates are documented in
 [`guides/durable-checkpoints.md`](./guides/durable-checkpoints.md).
+Generated consumer graphs and impact-gate selection are documented in
+[`guides/dependency-impact-analysis.md`](./guides/dependency-impact-analysis.md).
 The initial runtime implementation is documented in
 [`guides/opencode-adapter.md`](./guides/opencode-adapter.md).
 
