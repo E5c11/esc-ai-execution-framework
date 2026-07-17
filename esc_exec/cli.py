@@ -11,6 +11,7 @@ from esc_exec.registry import add_route, default_registry_path, read_registry, r
 from esc_exec.reporting import summarize_junit
 from esc_exec.task_context import build_task_context, build_verification_plan, generate_gradle_verification_profile
 from esc_exec.architecture import check_architecture, generate_architecture_profile
+from esc_exec.checkpoints import create_checkpoint, inspect_checkpoint, update_checkpoint
 
 
 def _registry_path(raw: str | None) -> Path:
@@ -107,6 +108,30 @@ def build_parser() -> argparse.ArgumentParser:
     architecture_check.add_argument("repository")
     architecture_check.add_argument("component")
     architecture_check.add_argument("output", type=Path)
+
+    checkpoint = subcommands.add_parser("checkpoint", help="Create and maintain durable task handoffs")
+    checkpoint_commands = checkpoint.add_subparsers(dest="checkpoint_command", required=True)
+    checkpoint_create = checkpoint_commands.add_parser("create")
+    checkpoint_create.add_argument("repository")
+    checkpoint_create.add_argument("task", type=Path)
+    checkpoint_create.add_argument("--run-id")
+    checkpoint_create.add_argument("--status", choices=("active", "blocked", "ready-to-resume"), default="active")
+    checkpoint_update = checkpoint_commands.add_parser("update")
+    checkpoint_update.add_argument("repository")
+    checkpoint_update.add_argument("task_id")
+    checkpoint_update.add_argument("--run-id")
+    checkpoint_update.add_argument("--status", choices=("active", "blocked", "ready-to-resume"))
+    checkpoint_update.add_argument("--clear-blockers", action="store_true")
+    checkpoint_inspect = checkpoint_commands.add_parser("inspect")
+    checkpoint_inspect.add_argument("repository")
+    checkpoint_inspect.add_argument("task_id")
+    for command in (checkpoint_create, checkpoint_update):
+        command.add_argument("--completed", action="append", default=[])
+        command.add_argument("--decision", action="append", default=[])
+        command.add_argument("--remaining", action="append", default=[])
+        command.add_argument("--blocker", action="append", default=[])
+        command.add_argument("--artifact", action="append", default=[])
+        command.add_argument("--last-event-sequence", type=int)
 
     opencode = subcommands.add_parser("opencode", help="Run the OpenCode reference adapter")
     opencode_commands = opencode.add_subparsers(dest="opencode_command", required=True)
@@ -246,6 +271,34 @@ def main(argv: list[str] | None = None) -> int:
         except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
             print(f"INCOMPLETE {exc}")
             return 2
+
+    if args.command == "checkpoint":
+        try:
+            repository = _resolve_repository(args.repository, registry)
+            if args.checkpoint_command == "inspect":
+                print(inspect_checkpoint(repository, args.task_id))
+                return 0
+            values = {
+                "run_id": args.run_id,
+                "status": args.status,
+                "completed": args.completed,
+                "decisions": args.decision,
+                "remaining": args.remaining,
+                "blockers": args.blocker,
+                "artifacts": args.artifact,
+                "last_event_sequence": args.last_event_sequence,
+            }
+            if args.checkpoint_command == "create":
+                path = create_checkpoint(repository, args.task, **values)
+            else:
+                values["clear_blockers"] = args.clear_blockers
+                path = update_checkpoint(repository, args.task_id, **values)
+            print(f"CHECKPOINT {path}")
+            print("COMMIT     Review and commit this checkpoint for durable handoff.")
+            return 0
+        except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
+            print(f"INVALID    {exc}")
+            return 1
 
     if args.command == "opencode":
         adapter = OpenCodeAdapter(OpenCodeClient(args.server), registry)

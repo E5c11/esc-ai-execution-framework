@@ -104,6 +104,11 @@ Run declared architecture fitness functions as part of their component gate and 
 to violations by stable rule ID. Do not replace a missing architecture profile with
 implicit global rules.
 
+Store resumable task state at `workflows/active/<task-id>/checkpoint.yaml`. Keep entries
+bounded, preserve decisions, reference full artifacts by relative path, and commit the
+checkpoint after review. Treat orchestrator failure checkpoints as transient candidates
+until their project-relevant state is deliberately promoted.
+
 Manifests and indexes narrow initial discovery. They do not prohibit evidence-driven
 scope expansion and are not substitutes for reading source code, tests, or reports
 necessary to complete a task correctly.

@@ -160,6 +160,24 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
             conditions = document.get("completion_conditions")
             if not isinstance(conditions, list) or not conditions:
                 messages.append(prefix + "completion_conditions must be a non-empty list")
+        if kind == "checkpoint":
+            progress = document.get("progress", {})
+            for field in ("completed", "decisions", "remaining", "blockers", "artifacts"):
+                values = progress.get(field, [])
+                if not isinstance(values, list) or len(values) > 50 or not all(isinstance(value, str) and 0 < len(value) <= 1000 for value in values):
+                    messages.append(prefix + f"progress.{field} must contain at most 50 non-empty bounded strings")
+            status = _value_at(document, "checkpoint.status")
+            if status == "blocked" and not progress.get("blockers"):
+                messages.append(prefix + "blocked checkpoints require at least one blocker")
+            if status == "ready-to-resume" and not progress.get("remaining"):
+                messages.append(prefix + "ready-to-resume checkpoints require remaining work")
+            for field in ("checkpoint.task_path",):
+                value = _value_at(document, field)
+                if isinstance(value, str) and Path(value).is_absolute():
+                    messages.append(prefix + f"{field} must be repository-relative")
+            for artifact in progress.get("artifacts", []):
+                if isinstance(artifact, str) and Path(artifact).is_absolute():
+                    messages.append(prefix + "progress.artifacts must be repository/run-relative")
         if kind == "adapter":
             capabilities = _value_at(document, "adapter.capabilities")
             if not isinstance(capabilities, list) or not capabilities:

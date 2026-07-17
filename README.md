@@ -79,6 +79,8 @@ Bounded task routing and progressive verification gates are documented in
 [`guides/task-context-and-progressive-verification.md`](./guides/task-context-and-progressive-verification.md).
 Component-owned architecture fitness functions are documented in
 [`guides/executable-architecture-checks.md`](./guides/executable-architecture-checks.md).
+Committed task handoffs and transient failed-run candidates are documented in
+[`guides/durable-checkpoints.md`](./guides/durable-checkpoints.md).
 The initial runtime implementation is documented in
 [`guides/opencode-adapter.md`](./guides/opencode-adapter.md).
 

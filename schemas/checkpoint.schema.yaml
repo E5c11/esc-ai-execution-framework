@@ -14,6 +14,7 @@ properties:
       id: {type: string, minLength: 1}
       task_id: {type: string, minLength: 1}
       run_id: {type: string, minLength: 1}
+      task_path: {type: string, minLength: 1}
       status: {enum: [active, blocked, ready-to-resume]}
       objective: {type: string, minLength: 1}
       updated_at: {type: string, format: date-time}
@@ -28,4 +29,3 @@ properties:
       blockers: {type: array, items: {type: string}}
       artifacts: {type: array, items: {type: string}}
       last_event_sequence: {type: integer, minimum: 0}
-

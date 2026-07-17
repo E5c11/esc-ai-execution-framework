@@ -39,8 +39,8 @@ build the efficiency capabilities one vertical slice at a time.
 | 6 | [Compact test and report summaries](../archive/compact-verification-reports.md) | Bounded structured verification results with full artifacts retained | Complete |
 | 7 | [Task context and progressive verification](../archive/task-context-and-progressive-verification.md) | Task-specific context plus focused → component → impact → final gates | Complete |
 | 8 | [Executable architecture checks](../archive/executable-architecture-checks.md) | Deterministic rule enforcement with stable rule IDs | Complete |
-| 9 | Durable checkpoints | Another agent/person can resume incomplete work without reconstructing history | **Next** |
-| 10 | Dependency graph and impact analysis | Generated consumer relationships drive appropriate verification scope | Pending |
+| 9 | [Durable checkpoints](../archive/durable-checkpoints.md) | Another agent/person can resume incomplete work without reconstructing history | Complete |
+| 10 | Dependency graph and impact analysis | Generated consumer relationships drive appropriate verification scope | **Next** |
 | 11 | Execution-efficiency measurement | Evidence for token, tool-call, elapsed-time, and rework improvements | Pending |
 
 ## Capability 1 — Initial Scope
