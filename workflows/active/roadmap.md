@@ -24,8 +24,8 @@ build the efficiency capabilities one vertical slice at a time.
 - Documents carry an explicit integer `schema_version` from their first version.
 - OpenCode is the initial lightweight reference runtime. Portable contracts must not
   depend on OpenCode-specific concepts.
-- A central orchestrator will become a separate repository after the neutral contracts
-  have been exercised sufficiently to justify a running service.
+- The central control plane lives in the separate `esc-ai-orchestrator` repository and
+  consumes this framework's portable contracts.
 
 ## Sequence
 
@@ -35,8 +35,8 @@ build the efficiency capabilities one vertical slice at a time.
 | 2 | [Repository and component indexes](../archive/repository-component-indexes.md) | Manifest-driven routing catalog generated from declared components and repository structure | Complete |
 | 3 | [Provider-neutral execution contracts](../archive/provider-neutral-execution-contracts.md) | Task specification, run, event, artifact, checkpoint, workspace, adapter, and policy schemas | Complete |
 | 4 | [OpenCode reference adapter](../archive/opencode-reference-adapter.md) | Resolve a repo, load manifests, start/observe/resume a small OpenCode-backed run | Complete — local models unavailable |
-| 5 | Central orchestrator bootstrap | Create the separate orchestrator repo once the first adapter validates the contracts | **Next** |
-| 6 | Compact test and report summaries | Bounded structured verification results with full artifacts retained | Pending |
+| 5 | Central orchestrator bootstrap | Separate control-plane repository with HTTP submission/observation, SQLite persistence, scheduling, and a replaceable runtime boundary | Complete |
+| 6 | Compact test and report summaries | Bounded structured verification results with full artifacts retained | **Next** |
 | 7 | Task context and progressive verification | Task-specific context plus focused → component → impact → final gates | Pending |
 | 8 | Executable architecture checks | Deterministic rule enforcement with stable rule IDs | Pending |
 | 9 | Durable checkpoints | Another agent/person can resume incomplete work without reconstructing history | Pending |
@@ -77,9 +77,10 @@ orchestrator. The spike succeeds when it can:
 ## Orchestrator Boundary
 
 The framework repository owns specifications, schemas, conventions, conformance
-fixtures, reusable adapters, and small generic tooling. The future orchestrator owns
+fixtures, reusable adapters, and small generic tooling. The orchestrator owns
 the running control plane: API, persistence, scheduling, credentials, workspaces,
 agent selection, concurrency, approvals, and deployment.
 
-Do not create the orchestrator repository until the provider-neutral contracts and the
-OpenCode reference spike expose a real service boundary.
+The bootstrap preserves explicit store, scheduler, and runtime boundaries so its
+SQLite database and in-process worker can be replaced without changing the portable
+execution contracts.
