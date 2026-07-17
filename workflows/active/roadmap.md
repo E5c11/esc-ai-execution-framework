@@ -34,8 +34,8 @@ build the efficiency capabilities one vertical slice at a time.
 | 1 | [Component manifests and route discovery](../archive/component-manifests-and-route-discovery.md) | Schemas, setup instructions, local registry convention, generation/validation behavior | Complete |
 | 2 | [Repository and component indexes](../archive/repository-component-indexes.md) | Manifest-driven routing catalog generated from declared components and repository structure | Complete |
 | 3 | [Provider-neutral execution contracts](../archive/provider-neutral-execution-contracts.md) | Task specification, run, event, artifact, checkpoint, workspace, adapter, and policy schemas | Complete |
-| 4 | OpenCode reference adapter | Resolve a repo, load manifests, start/observe/resume a small OpenCode-backed run | **Next** |
-| 5 | Central orchestrator bootstrap | Create the separate orchestrator repo once the first adapter validates the contracts | Pending |
+| 4 | [OpenCode reference adapter](../archive/opencode-reference-adapter.md) | Resolve a repo, load manifests, start/observe/resume a small OpenCode-backed run | Complete — local models unavailable |
+| 5 | Central orchestrator bootstrap | Create the separate orchestrator repo once the first adapter validates the contracts | **Next** |
 | 6 | Compact test and report summaries | Bounded structured verification results with full artifacts retained | Pending |
 | 7 | Task context and progressive verification | Task-specific context plus focused → component → impact → final gates | Pending |
 | 8 | Executable architecture checks | Deterministic rule enforcement with stable rule IDs | Pending |

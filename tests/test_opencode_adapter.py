@@ -1,0 +1,69 @@
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+
+from esc_exec.contracts import validate_contract
+from esc_exec.model import ManifestState
+from esc_exec.opencode_adapter import OpenCodeAdapter
+from esc_exec.registry import add_route
+from esc_exec.json_io import write_json
+
+
+class FakeOpenCodeClient:
+    base_url = "http://fake"
+    prompts: list[str]
+
+    def __init__(self): self.prompts = []
+    def health(self, directory): return {"worktree": str(directory)}
+    def create_session(self, directory, title): return {"id": "ses-created", "title": title}
+    def fork(self, directory, session_id): return {"id": "ses-forked", "parentID": session_id}
+    def prompt(self, directory, session_id, prompt, model=None):
+        self.prompts.append(prompt)
+        return {"parts": [
+            {"type": "tool", "tool": "read", "state": {"status": "completed", "title": "Read index"}},
+            {"type": "text", "text": "The content component owns lesson publishing."},
+        ]}
+
+
+class OpenCodeAdapterTests(unittest.TestCase):
+    @staticmethod
+    def _repository(root: Path) -> Path:
+        repository = root / "repo"
+        (repository / "content").mkdir(parents=True)
+        write_json(repository / "esc-index.json", {"components": [{"id": "content", "purpose": "Owns lesson publishing.", "path": "content", "index": "content/esc-index.json", "routing": {"domains": ["lessons"], "concerns": ["publishing"], "aliases": []}}]})
+        write_json(repository / "content/esc-index.json", {"search_roots": ["content/src/main/kotlin"]})
+        return repository
+
+    def test_execute_emits_valid_portable_contracts(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._repository(root)
+            add_route(registry, "repositories", "ampm-backend", repository)
+            client = FakeOpenCodeClient()
+            run_dir = OpenCodeAdapter(client, registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml",
+                examples / "adapter.yaml", examples / "policy.yaml", root / "runs",
+            )
+            self.assertEqual(ManifestState.VALID, validate_contract("run", run_dir / "run.json").state)
+            self.assertEqual(ManifestState.VALID, validate_contract("event", run_dir / "events.jsonl").state)
+            self.assertEqual(ManifestState.VALID, validate_contract("artifact", run_dir / "artifact.json").state)
+            run = json.loads((run_dir / "run.json").read_text())
+            self.assertEqual("ses-created", run["adapter_metadata"]["session_id"])
+            self.assertIn("content/esc-index.json", client.prompts[0])
+            self.assertIn("read-only", client.prompts[0])
+
+    def test_fork_returns_provider_session_id(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            add_route(registry, "repositories", "ampm-backend", self._repository(root))
+            result = OpenCodeAdapter(FakeOpenCodeClient(), registry).fork("ampm-backend", "ses-parent")
+            self.assertEqual("ses-forked", result)
+
+
+if __name__ == "__main__":
+    unittest.main()

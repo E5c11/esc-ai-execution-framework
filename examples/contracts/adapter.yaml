@@ -6,4 +6,6 @@ adapter:
   capabilities: [sessions, events, tools, permissions]
   configuration:
     transport: http
-
+    model:
+      provider_id: opencode
+      model_id: big-pickle

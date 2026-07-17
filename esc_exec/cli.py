@@ -6,6 +6,7 @@ from pathlib import Path
 from esc_exec.contracts import CONTRACT_FORMATS, validate_contract, validate_contract_set
 from esc_exec.indexing import generate_indexes, match_components, validate_indexes
 from esc_exec.manifests import generate_gradle_manifests, overall_exit_code, validate_repository
+from esc_exec.opencode_adapter import OpenCodeAdapter, OpenCodeClient, OpenCodeError
 from esc_exec.registry import add_route, default_registry_path, read_registry, resolve_route, validate_registry
 
 
@@ -61,6 +62,21 @@ def build_parser() -> argparse.ArgumentParser:
     contract_validate.add_argument("path", type=Path)
     contract_set = contract_commands.add_parser("validate-set")
     contract_set.add_argument("directory", type=Path)
+
+    opencode = subcommands.add_parser("opencode", help="Run the OpenCode reference adapter")
+    opencode_commands = opencode.add_subparsers(dest="opencode_command", required=True)
+    opencode_execute = opencode_commands.add_parser("execute")
+    opencode_execute.add_argument("task", type=Path)
+    opencode_execute.add_argument("workspace", type=Path)
+    opencode_execute.add_argument("adapter", type=Path)
+    opencode_execute.add_argument("policy", type=Path)
+    opencode_execute.add_argument("--server", default="http://127.0.0.1:4097")
+    opencode_execute.add_argument("--output", type=Path, default=Path(".execution/runs"))
+    opencode_execute.add_argument("--session")
+    opencode_fork = opencode_commands.add_parser("fork")
+    opencode_fork.add_argument("repository")
+    opencode_fork.add_argument("session")
+    opencode_fork.add_argument("--server", default="http://127.0.0.1:4097")
     return parser
 
 
@@ -130,6 +146,18 @@ def main(argv: list[str] | None = None) -> int:
         result = validate_contract(args.kind, args.path)
         _print_result(result)
         return result.exit_code
+
+    if args.command == "opencode":
+        adapter = OpenCodeAdapter(OpenCodeClient(args.server), registry)
+        try:
+            if args.opencode_command == "fork":
+                print(adapter.fork(args.repository, args.session))
+            else:
+                print(adapter.execute(args.task, args.workspace, args.adapter, args.policy, args.output, args.session))
+            return 0
+        except (OpenCodeError, ValueError, KeyError, FileNotFoundError) as exc:
+            print(f"FAILED     {exc}")
+            return 1
 
     try:
         repository = _resolve_repository(args.repository, registry)
