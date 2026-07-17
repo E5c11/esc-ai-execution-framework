@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/efficiency-comparison-v1.schema.json",
+  "title": "ESC AI Efficiency Comparison",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "baseline_runs", "candidate_runs", "dimensions", "generated_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "baseline_runs": {"type": "array", "items": {"type": "string"}},
+    "candidate_runs": {"type": "array", "items": {"type": "string"}},
+    "dimensions": {"type": "object"},
+    "generated_at": {"type": "string", "format": "date-time"}
+  }
+}

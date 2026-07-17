@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "run": {"id": "run-index-review-001", "task_id": "task-index-review", "provider": "opencode", "status": "succeeded"},
+  "context": {"bytes": 1842, "components": 1, "paths": 2, "references": 1},
+  "execution": {"elapsed_ms": 1200, "tool_calls": 3, "read_calls": 2, "agent_messages": 1, "rework_events": 0},
+  "tokens": {"status": "reported", "input": 1200, "output": 180, "reasoning": 20, "cache_read": 400, "cache_write": 0, "total": 1400},
+  "generated_at": "2026-07-17T12:00:03Z"
+}

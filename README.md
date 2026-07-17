@@ -83,6 +83,8 @@ Committed task handoffs and transient failed-run candidates are documented in
 [`guides/durable-checkpoints.md`](./guides/durable-checkpoints.md).
 Generated consumer graphs and impact-gate selection are documented in
 [`guides/dependency-impact-analysis.md`](./guides/dependency-impact-analysis.md).
+Portable run metrics and baseline/candidate comparisons are documented in
+[`guides/execution-efficiency-measurement.md`](./guides/execution-efficiency-measurement.md).
 The initial runtime implementation is documented in
 [`guides/opencode-adapter.md`](./guides/opencode-adapter.md).
 

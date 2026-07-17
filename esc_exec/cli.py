@@ -13,6 +13,7 @@ from esc_exec.task_context import build_task_context, build_verification_plan, g
 from esc_exec.architecture import check_architecture, generate_architecture_profile
 from esc_exec.checkpoints import create_checkpoint, inspect_checkpoint, update_checkpoint
 from esc_exec.dependencies import analyze_impact, generate_dependency_graph, validate_dependency_graph
+from esc_exec.measurement import compare_efficiency
 
 
 def _registry_path(raw: str | None) -> Path:
@@ -144,6 +145,13 @@ def build_parser() -> argparse.ArgumentParser:
     dependency_impact.add_argument("repository")
     dependency_impact.add_argument("components", nargs="+")
     dependency_impact.add_argument("--output", type=Path, required=True)
+
+    measurement = subcommands.add_parser("measurement", help="Compare execution-efficiency evidence")
+    measurement_commands = measurement.add_subparsers(dest="measurement_command", required=True)
+    measurement_compare = measurement_commands.add_parser("compare")
+    measurement_compare.add_argument("--baseline", type=Path, action="append", required=True)
+    measurement_compare.add_argument("--candidate", type=Path, action="append", required=True)
+    measurement_compare.add_argument("--output", type=Path, required=True)
 
     opencode = subcommands.add_parser("opencode", help="Run the OpenCode reference adapter")
     opencode_commands = opencode.add_subparsers(dest="opencode_command", required=True)
@@ -331,6 +339,19 @@ def main(argv: list[str] | None = None) -> int:
         except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
             print(f"INCOMPLETE {exc}")
             return 2
+
+    if args.command == "measurement":
+        try:
+            document = compare_efficiency(args.baseline, args.candidate, args.output)
+            print(f"COMPARISON {args.output}")
+            for name, dimension in document["dimensions"].items():
+                change = dimension["change_percent"]
+                rendered = "unavailable" if change is None else f"{change:+.2f}% savings"
+                print(f"  {name}: {dimension['status']} ({rendered})")
+            return 0
+        except (KeyError, OSError, ValueError) as exc:
+            print(f"INVALID    {exc}")
+            return 1
 
     if args.command == "opencode":
         adapter = OpenCodeAdapter(OpenCodeClient(args.server), registry)

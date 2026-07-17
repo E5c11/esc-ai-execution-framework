@@ -24,6 +24,8 @@ CONTRACT_FORMATS = {
     "architecture-report": "json",
     "dependency-graph": "json",
     "impact-analysis": "json",
+    "run-metrics": "json",
+    "efficiency-comparison": "json",
 }
 
 REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
@@ -64,6 +66,16 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
     "impact-analysis": {
         "root": ("schema_version", "repository", "graph", "source_components", "direct_consumers", "transitive_consumers", "affected_components"),
     },
+    "run-metrics": {
+        "root": ("schema_version", "run", "context", "execution", "tokens", "generated_at"),
+        "run": ("id", "task_id", "provider", "status"),
+        "context": ("bytes", "components", "paths", "references"),
+        "execution": ("elapsed_ms", "tool_calls", "read_calls", "agent_messages", "rework_events"),
+        "tokens": ("status",),
+    },
+    "efficiency-comparison": {
+        "root": ("schema_version", "baseline_runs", "candidate_runs", "dimensions", "generated_at"),
+    },
 }
 
 ENUMS: dict[str, dict[str, set[str]]] = {
@@ -92,6 +104,10 @@ ENUMS: dict[str, dict[str, set[str]]] = {
         "verification.status": {"passed", "failed", "error"},
     },
     "architecture-report": {"status": {"passed", "failed"}},
+    "run-metrics": {
+        "run.status": {"succeeded", "failed", "cancelled", "interrupted"},
+        "tokens.status": {"reported", "unavailable"},
+    },
 }
 
 
@@ -312,6 +328,33 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
                 messages.append(prefix + "impact component fields must be string arrays")
             elif set(affected) != set(sources) | set(transitive) or not set(direct) <= set(transitive):
                 messages.append(prefix + "impact component sets are inconsistent")
+        if kind == "run-metrics":
+            for section, fields in {
+                "context": ("bytes", "components", "paths", "references"),
+                "execution": ("elapsed_ms", "tool_calls", "read_calls", "agent_messages", "rework_events"),
+            }.items():
+                values = document.get(section, {})
+                if any(not isinstance(values.get(field), int) or values[field] < 0 for field in fields):
+                    messages.append(prefix + f"{section} metrics must be non-negative integers")
+            tokens = document.get("tokens", {})
+            token_fields = ("input", "output", "reasoning", "cache_read", "cache_write", "total")
+            if any(field not in tokens for field in token_fields):
+                messages.append(prefix + "token metric fields must be present")
+            if tokens.get("status") == "reported":
+                if any(not isinstance(tokens.get(field), int) or tokens[field] < 0 for field in token_fields):
+                    messages.append(prefix + "reported token metrics must be non-negative integers")
+                elif tokens["total"] != tokens["input"] + tokens["output"] + tokens["reasoning"]:
+                    messages.append(prefix + "tokens.total must equal input + output + reasoning")
+            elif tokens.get("status") == "unavailable" and any(tokens.get(field) is not None for field in token_fields):
+                messages.append(prefix + "unavailable token metrics must be null")
+        if kind == "efficiency-comparison":
+            for field in ("baseline_runs", "candidate_runs"):
+                values = document.get(field)
+                if not isinstance(values, list) or not values or not all(isinstance(value, str) for value in values):
+                    messages.append(prefix + f"{field} must be a non-empty string array")
+            dimensions = document.get("dimensions")
+            if not isinstance(dimensions, dict) or not dimensions:
+                messages.append(prefix + "dimensions must be a non-empty object")
     state = ManifestState.INVALID if messages else ManifestState.VALID
     return ValidationResult(state, str(path), messages)
 

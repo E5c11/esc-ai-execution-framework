@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ from esc_exec.model import ManifestState
 from esc_exec.registry import resolve_route
 from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
+from esc_exec.measurement import run_metrics
 
 READ_ONLY_TOOLS = {"read": True, "list": True, "glob": True, "grep": True, "bash": False, "edit": False, "write": False, "patch": False, "webfetch": False, "task": False, "todowrite": False, "todoread": False}
 
@@ -63,6 +65,7 @@ class OpenCodeAdapter:
         task, adapter, policy = task_doc["task"], load_yaml(adapter_path)["adapter"], load_yaml(policy_path)["policy"]
         if adapter["provider"] != "opencode" or adapter["kind"] != "agent-runtime": raise ValueError("Adapter must be OpenCode agent-runtime")
         if workspace["repository"] != task["repository"]: raise ValueError("Workspace repository must match task repository")
+        started = time.monotonic()
         repository = resolve_route(self.registry_path, "repositories", task["repository"])
         self.client.health(repository)
         run_id, created_at = f"run-{uuid.uuid4().hex}", _now()
@@ -71,6 +74,8 @@ class OpenCodeAdapter:
         context = build_task_context(repository, task_path, run_dir / "task-context.json")
         if session_id is None: session_id = self.client.create_session(repository, task["title"])["id"]
         events: list[dict[str, Any]] = []
+        response: dict[str, Any] = {}
+        tools: list[dict[str, Any]] = []
         self._event(events, run_id, "run.started", "orchestrator", {"task_id": task["id"]})
         artifact_name: str | None = None
         try:
@@ -93,6 +98,10 @@ class OpenCodeAdapter:
             status = "failed"
         self._write_events(run_dir / "events.jsonl", events)
         write_json(run_dir / "run.json", {"schema_version": 1, "run": {"id": run_id, "task_id": task["id"], "status": status, "created_at": created_at, "started_at": created_at, "ended_at": _now()}, "bindings": {"adapter": adapter["id"], "workspace": workspace["id"], "policy": policy["id"]}, "events": "events.jsonl", "artifacts": [artifact_name] if artifact_name else [], "adapter_metadata": {"provider": "opencode", "session_id": session_id, "server": self.client.base_url}})
+        write_json(run_dir / "run-metrics.json", run_metrics(
+            run_id, task["id"], "opencode", status, run_dir / "task-context.json", context,
+            round((time.monotonic() - started) * 1000), tools, response,
+        ))
         if status == "failed": raise OpenCodeError(f"OpenCode run failed; see {run_dir / 'events.jsonl'}")
         return run_dir
 

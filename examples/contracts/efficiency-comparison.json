@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "baseline_runs": ["run-baseline-001"],
+  "candidate_runs": ["run-index-review-001"],
+  "dimensions": {
+    "tokens": {"status": "improved", "baseline_average": 1750.0, "candidate_average": 1400.0, "change_percent": 20.0, "baseline_samples": 1, "candidate_samples": 1},
+    "elapsed_ms": {"status": "unavailable", "baseline_average": null, "candidate_average": null, "change_percent": null, "baseline_samples": 0, "candidate_samples": 0}
+  },
+  "generated_at": "2026-07-17T12:00:03Z"
+}

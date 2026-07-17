@@ -1,5 +1,5 @@
 # ESC AI Execution Framework — Active Roadmap
-**Status:** Active — capabilities are being implemented sequentially
+**Status:** Initial capability sequence complete
 **Goal:** Establish portable execution contracts, prove them through OpenCode, and then
 build the efficiency capabilities one vertical slice at a time.
 
@@ -41,7 +41,7 @@ build the efficiency capabilities one vertical slice at a time.
 | 8 | [Executable architecture checks](../archive/executable-architecture-checks.md) | Deterministic rule enforcement with stable rule IDs | Complete |
 | 9 | [Durable checkpoints](../archive/durable-checkpoints.md) | Another agent/person can resume incomplete work without reconstructing history | Complete |
 | 10 | [Dependency graph and impact analysis](../archive/dependency-impact-analysis.md) | Generated consumer relationships drive appropriate verification scope | Complete |
-| 11 | Execution-efficiency measurement | Evidence for token, tool-call, elapsed-time, and rework improvements | **Next** |
+| 11 | [Execution-efficiency measurement](../archive/execution-efficiency-measurement.md) | Evidence for token, tool-call, elapsed-time, and rework improvements | Complete — provider cohort pending |
 
 ## Capability 1 — Initial Scope
 

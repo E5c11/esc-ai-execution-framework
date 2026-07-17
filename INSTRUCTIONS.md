@@ -113,6 +113,10 @@ Validate `esc-dependencies.json` before impact planning. Use the transitive cons
 closure to populate the impact gate from consumer-owned verification profiles; never
 silently omit a consumer because its profile is missing.
 
+Retain `run-metrics.json` for representative runs and compare equivalent baseline and
+candidate cohorts. Never estimate missing provider token usage or claim savings from
+context size alone; report unavailable dimensions and preserve failed-run evidence.
+
 Manifests and indexes narrow initial discovery. They do not prohibit evidence-driven
 scope expansion and are not substitutes for reading source code, tests, or reports
 necessary to complete a task correctly.

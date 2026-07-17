@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/run-metrics-v1.schema.json",
+  "title": "ESC AI Run Metrics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run", "context", "execution", "tokens", "generated_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run": {"type": "object"},
+    "context": {"type": "object"},
+    "execution": {"type": "object"},
+    "tokens": {"type": "object"},
+    "generated_at": {"type": "string", "format": "date-time"}
+  }
+}
