@@ -36,8 +36,8 @@ build the efficiency capabilities one vertical slice at a time.
 | 3 | [Provider-neutral execution contracts](../archive/provider-neutral-execution-contracts.md) | Task specification, run, event, artifact, checkpoint, workspace, adapter, and policy schemas | Complete |
 | 4 | [OpenCode reference adapter](../archive/opencode-reference-adapter.md) | Resolve a repo, load manifests, start/observe/resume a small OpenCode-backed run | Complete — local models unavailable |
 | 5 | Central orchestrator bootstrap | Separate control-plane repository with HTTP submission/observation, SQLite persistence, scheduling, and a replaceable runtime boundary | Complete |
-| 6 | Compact test and report summaries | Bounded structured verification results with full artifacts retained | **Next** |
-| 7 | Task context and progressive verification | Task-specific context plus focused → component → impact → final gates | Pending |
+| 6 | [Compact test and report summaries](../archive/compact-verification-reports.md) | Bounded structured verification results with full artifacts retained | Complete |
+| 7 | Task context and progressive verification | Task-specific context plus focused → component → impact → final gates | **Next** |
 | 8 | Executable architecture checks | Deterministic rule enforcement with stable rule IDs | Pending |
 | 9 | Durable checkpoints | Another agent/person can resume incomplete work without reconstructing history | Pending |
 | 10 | Dependency graph and impact analysis | Generated consumer relationships drive appropriate verification scope | Pending |

@@ -73,6 +73,8 @@ complete adoption flow.
 
 Provider-neutral task, run, event, artifact, checkpoint, workspace, adapter, and policy
 contracts are documented in [`guides/execution-contracts.md`](./guides/execution-contracts.md).
+Bounded test-result summaries and component-owned report profiles are documented in
+[`guides/compact-verification-reports.md`](./guides/compact-verification-reports.md).
 The initial runtime implementation is documented in
 [`guides/opencode-adapter.md`](./guides/opencode-adapter.md).
 

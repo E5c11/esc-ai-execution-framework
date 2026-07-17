@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/verification-summary-v1.schema.json",
+  "title": "ESC AI Verification Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "verification", "totals", "failures", "truncation", "full_report"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "source_format", "status", "generated_at"],
+      "properties": {
+        "profile": {"type": "string"},
+        "source_format": {"const": "junit-xml"},
+        "status": {"enum": ["passed", "failed", "error"]},
+        "generated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tests", "passed", "failed", "errors", "skipped", "duration_ms"],
+      "properties": {
+        "tests": {"type": "integer", "minimum": 0},
+        "passed": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "errors": {"type": "integer", "minimum": 0},
+        "skipped": {"type": "integer", "minimum": 0},
+        "duration_ms": {"type": "integer", "minimum": 0}
+      }
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["test", "kind", "message"],
+        "properties": {
+          "suite": {"type": "string"},
+          "test": {"type": "string"},
+          "kind": {"enum": ["failure", "error"]},
+          "message": {"type": "string"}
+        }
+      }
+    },
+    "truncation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failures_included", "failures_omitted", "max_failures", "max_message_chars"],
+      "properties": {
+        "failures_included": {"type": "integer", "minimum": 0},
+        "failures_omitted": {"type": "integer", "minimum": 0},
+        "max_failures": {"type": "integer", "minimum": 0},
+        "max_message_chars": {"type": "integer", "minimum": 1}
+      }
+    },
+    "full_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "media_type"],
+      "properties": {
+        "path": {"type": "string"},
+        "media_type": {"const": "application/xml"}
+      }
+    }
+  }
+}

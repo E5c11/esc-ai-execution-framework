@@ -8,6 +8,7 @@ from esc_exec.indexing import generate_indexes, match_components, validate_index
 from esc_exec.manifests import generate_gradle_manifests, overall_exit_code, validate_repository
 from esc_exec.opencode_adapter import OpenCodeAdapter, OpenCodeClient, OpenCodeError
 from esc_exec.registry import add_route, default_registry_path, read_registry, resolve_route, validate_registry
+from esc_exec.reporting import summarize_junit
 
 
 def _registry_path(raw: str | None) -> Path:
@@ -62,6 +63,14 @@ def build_parser() -> argparse.ArgumentParser:
     contract_validate.add_argument("path", type=Path)
     contract_set = contract_commands.add_parser("validate-set")
     contract_set.add_argument("directory", type=Path)
+
+    report = subcommands.add_parser("report", help="Create bounded summaries of retained reports")
+    report_commands = report.add_subparsers(dest="report_command", required=True)
+    report_summarize = report_commands.add_parser("summarize")
+    report_summarize.add_argument("profile", type=Path)
+    report_summarize.add_argument("source", type=Path)
+    report_summarize.add_argument("output", type=Path)
+    report_summarize.add_argument("--full-report-path")
 
     opencode = subcommands.add_parser("opencode", help="Run the OpenCode reference adapter")
     opencode_commands = opencode.add_subparsers(dest="opencode_command", required=True)
@@ -146,6 +155,20 @@ def main(argv: list[str] | None = None) -> int:
         result = validate_contract(args.kind, args.path)
         _print_result(result)
         return result.exit_code
+
+    if args.command == "report":
+        try:
+            document = summarize_junit(args.source, args.profile, args.output, args.full_report_path)
+        except (OSError, ValueError) as exc:
+            print(f"INVALID    {exc}")
+            return 1
+        totals = document["totals"]
+        print(
+            f"{document['verification']['status'].upper():<10} "
+            f"tests={totals['tests']} failed={totals['failed']} errors={totals['errors']} "
+            f"summary={args.output} full={document['full_report']['path']}"
+        )
+        return 0
 
     if args.command == "opencode":
         adapter = OpenCodeAdapter(OpenCodeClient(args.server), registry)

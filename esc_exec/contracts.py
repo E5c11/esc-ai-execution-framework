@@ -18,6 +18,7 @@ CONTRACT_FORMATS = {
     "run": "json",
     "artifact": "json",
     "event": "jsonl",
+    "verification-summary": "json",
 }
 
 REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
@@ -29,6 +30,13 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
     "run": {"root": ("schema_version", "run", "bindings", "events", "artifacts"), "run": ("id", "task_id", "status", "created_at"), "bindings": ("adapter", "workspace", "policy")},
     "artifact": {"root": ("schema_version", "artifact"), "artifact": ("id", "run_id", "kind", "path", "retention", "created_at")},
     "event": {"root": ("schema_version", "event"), "event": ("id", "run_id", "sequence", "timestamp", "type", "actor", "payload")},
+    "verification-summary": {
+        "root": ("schema_version", "verification", "totals", "failures", "truncation", "full_report"),
+        "verification": ("profile", "source_format", "status", "generated_at"),
+        "totals": ("tests", "passed", "failed", "errors", "skipped", "duration_ms"),
+        "truncation": ("failures_included", "failures_omitted", "max_failures", "max_message_chars"),
+        "full_report": ("path", "media_type"),
+    },
 }
 
 ENUMS: dict[str, dict[str, set[str]]] = {
@@ -51,6 +59,10 @@ ENUMS: dict[str, dict[str, set[str]]] = {
             "checkpoint.created", "run.completed", "run.failed",
         },
         "event.actor": {"user", "agent", "orchestrator", "adapter", "tool", "system"},
+    },
+    "verification-summary": {
+        "verification.source_format": {"junit-xml"},
+        "verification.status": {"passed", "failed", "error"},
     },
 }
 
@@ -143,6 +155,41 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
             artifact_path = _value_at(document, "artifact.path")
             if isinstance(artifact_path, str) and Path(artifact_path).is_absolute():
                 messages.append(prefix + "artifact.path must be repository/workspace-relative")
+        if kind == "verification-summary":
+            totals = document.get("totals", {})
+            numeric_fields = ("tests", "passed", "failed", "errors", "skipped", "duration_ms")
+            if any(not isinstance(totals.get(field), int) or totals[field] < 0 for field in numeric_fields):
+                messages.append(prefix + "totals fields must be non-negative integers")
+            elif totals["passed"] + totals["failed"] + totals["errors"] + totals["skipped"] != totals["tests"]:
+                messages.append(prefix + "totals result counts must add up to totals.tests")
+            failures = document.get("failures")
+            truncation = document.get("truncation", {})
+            limit_fields = ("failures_included", "failures_omitted", "max_failures", "max_message_chars")
+            valid_limits = all(isinstance(truncation.get(field), int) and truncation[field] >= 0 for field in limit_fields)
+            if not valid_limits or truncation.get("max_message_chars", 0) < 1:
+                messages.append(prefix + "truncation fields must be non-negative integers and max_message_chars must be positive")
+            if not isinstance(failures, list):
+                messages.append(prefix + "failures must be an array")
+            else:
+                if truncation.get("failures_included") != len(failures):
+                    messages.append(prefix + "truncation.failures_included must equal the failures array length")
+                if valid_limits and len(failures) > truncation["max_failures"]:
+                    messages.append(prefix + "failures array exceeds truncation.max_failures")
+                for index, failure in enumerate(failures):
+                    if not isinstance(failure, dict) or any(field not in failure for field in ("test", "kind", "message")):
+                        messages.append(prefix + f"failures[{index}] must contain test, kind, and message")
+                        continue
+                    if failure["kind"] not in {"failure", "error"}:
+                        messages.append(prefix + f"failures[{index}].kind must be failure or error")
+                    if valid_limits and (not isinstance(failure["message"], str) or len(failure["message"]) > truncation["max_message_chars"]):
+                        messages.append(prefix + f"failures[{index}].message exceeds max_message_chars")
+            if all(isinstance(totals.get(field), int) for field in ("failed", "errors")):
+                expected_status = "error" if totals["errors"] else "failed" if totals["failed"] else "passed"
+                if _value_at(document, "verification.status") != expected_status:
+                    messages.append(prefix + f"verification.status must be {expected_status} for these totals")
+            report_path = _value_at(document, "full_report.path")
+            if isinstance(report_path, str) and Path(report_path).is_absolute():
+                messages.append(prefix + "full_report.path must be workspace-relative")
     state = ManifestState.INVALID if messages else ManifestState.VALID
     return ValidationResult(state, str(path), messages)
 

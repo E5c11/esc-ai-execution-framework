@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "verification": {
+    "profile": "junit-default",
+    "source_format": "junit-xml",
+    "status": "failed",
+    "generated_at": "2026-07-17T12:00:03Z"
+  },
+  "totals": {
+    "tests": 12,
+    "passed": 10,
+    "failed": 1,
+    "errors": 0,
+    "skipped": 1,
+    "duration_ms": 842
+  },
+  "failures": [
+    {
+      "suite": "content.IndexRoutingTest",
+      "test": "routes content query",
+      "kind": "failure",
+      "message": "expected content to rank first"
+    }
+  ],
+  "truncation": {
+    "failures_included": 1,
+    "failures_omitted": 0,
+    "max_failures": 10,
+    "max_message_chars": 500
+  },
+  "full_report": {
+    "path": ".execution/runs/run-index-review-001/reports/junit.xml",
+    "media_type": "application/xml"
+  }
+}

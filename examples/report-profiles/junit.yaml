@@ -1,0 +1,7 @@
+schema_version: 1
+profile:
+  id: junit-default
+  format: junit-xml
+limits:
+  max_failures: 10
+  max_message_chars: 500

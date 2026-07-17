@@ -1,0 +1,22 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://esc.ai/schemas/execution/report-profile-v1.schema.json
+title: ESC AI Report Profile
+type: object
+additionalProperties: false
+required: [schema_version, profile, limits]
+properties:
+  schema_version: {const: 1}
+  profile:
+    type: object
+    additionalProperties: false
+    required: [id, format]
+    properties:
+      id: {type: string, minLength: 1}
+      format: {const: junit-xml}
+  limits:
+    type: object
+    additionalProperties: false
+    required: [max_failures, max_message_chars]
+    properties:
+      max_failures: {type: integer, minimum: 0, maximum: 100}
+      max_message_chars: {type: integer, minimum: 1, maximum: 4000}
