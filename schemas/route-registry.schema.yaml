@@ -1,0 +1,23 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://esc.ai/schemas/execution/route-registry-v1.schema.yaml
+title: ESC AI Machine-local Route Registry
+type: object
+additionalProperties: false
+required: [schema_version, repositories, frameworks]
+properties:
+  schema_version:
+    const: 1
+  repositories:
+    $ref: "#/$defs/routes"
+  frameworks:
+    $ref: "#/$defs/routes"
+$defs:
+  routes:
+    type: object
+    additionalProperties:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1}
+

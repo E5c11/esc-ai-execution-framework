@@ -1,0 +1,48 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://esc.ai/schemas/execution/component-manifest-v1.schema.yaml
+title: ESC AI Component Manifest
+type: object
+additionalProperties: false
+required: [schema_version, component, build, paths]
+properties:
+  schema_version:
+    const: 1
+  component:
+    type: object
+    additionalProperties: false
+    required: [id, type, path, purpose]
+    properties:
+      id: {type: string, minLength: 1}
+      type: {type: string, minLength: 1}
+      path: {type: string, minLength: 1}
+      purpose: {type: string, minLength: 1}
+      ownership:
+        type: object
+        additionalProperties: false
+        properties:
+          domains:
+            type: array
+            items: {type: string, minLength: 1}
+          concerns:
+            type: array
+            items: {type: string, minLength: 1}
+  build:
+    type: object
+    additionalProperties: true
+    required: [system, project]
+    properties:
+      system: {type: string, minLength: 1}
+      project: {type: string, minLength: 1}
+  paths:
+    type: object
+    additionalProperties: {type: string, minLength: 1}
+  generation:
+    type: object
+    additionalProperties: false
+    required: [generator, sources]
+    properties:
+      generator: {type: string, minLength: 1}
+      sources:
+        type: array
+        items: {type: string, minLength: 1}
+

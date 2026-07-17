@@ -1,0 +1,43 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://esc.ai/schemas/execution/repository-manifest-v1.schema.yaml
+title: ESC AI Repository Manifest
+type: object
+additionalProperties: false
+required: [schema_version, repository, components]
+properties:
+  schema_version:
+    const: 1
+  repository:
+    type: object
+    additionalProperties: false
+    required: [id, type]
+    properties:
+      id: {type: string, minLength: 1}
+      type: {type: string, minLength: 1}
+      purpose: {type: string, minLength: 1}
+  frameworks:
+    type: object
+    additionalProperties: {type: string, minLength: 1}
+  components:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      additionalProperties: false
+      required: [id, manifest]
+      properties:
+        id: {type: string, minLength: 1}
+        manifest: {type: string, pattern: "(^|/)esc-component\\.yaml$"}
+  generation:
+    $ref: "#/$defs/generation"
+$defs:
+  generation:
+    type: object
+    additionalProperties: false
+    required: [generator, sources]
+    properties:
+      generator: {type: string, minLength: 1}
+      sources:
+        type: array
+        items: {type: string, minLength: 1}
+
