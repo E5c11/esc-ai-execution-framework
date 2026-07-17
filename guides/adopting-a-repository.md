@@ -93,3 +93,18 @@ new components and report the repository manifest as `STALE`.
 Commit repository manifests, component manifests, generated routing indexes, task
 specifications, and checkpoints needed to resume work. Do not commit route registries,
 raw run logs, caches, model transcripts, or scratch files.
+
+## Generate routing indexes
+
+After every manifest validates, generate and validate the canonical JSON indexes:
+
+```bash
+esc-exec index generate ampm-backend
+esc-exec index validate ampm-backend
+esc-exec index match ampm-backend "lesson publishing"
+```
+
+The root `esc-index.json` is the first routing read. It identifies matching components,
+their component-index paths, and their search roots. A component `esc-index.json`
+contains package areas, key entry points, and role counts. Neither index embeds source
+contents or has a parallel Markdown form.

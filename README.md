@@ -56,6 +56,9 @@ manifest generation:
 python -m esc_exec route add repository my-project /path/to/my-project
 python -m esc_exec manifest generate /path/to/my-project
 python -m esc_exec manifest validate /path/to/my-project
+python -m esc_exec index generate my-project
+python -m esc_exec index validate my-project
+python -m esc_exec index match my-project "lesson publishing"
 ```
 
 For editable installation during framework development:
@@ -67,3 +70,7 @@ esc-exec --help
 
 See [`guides/adopting-a-repository.md`](./guides/adopting-a-repository.md) for the
 complete adoption flow.
+
+Generated indexes are canonical, pretty-printed JSON files named `esc-index.json`.
+There is deliberately no committed Markdown representation; human views are rendered
+on demand by the CLI or future user interfaces.

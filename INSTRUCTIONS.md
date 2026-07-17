@@ -100,6 +100,20 @@ Manifests and indexes narrow initial discovery. They do not prohibit evidence-dr
 scope expansion and are not substitutes for reading source code, tests, or reports
 necessary to complete a task correctly.
 
+## Generated Indexes
+
+Repository and component routing indexes are committed as canonical JSON:
+
+```text
+<repository>/esc-index.json
+<component>/esc-index.json
+```
+
+Do not maintain a Markdown or other duplicate index representation. Human-readable
+views are generated on demand by a CLI or UI from the canonical JSON. Generated JSON
+must use stable ordering, repository-relative paths, no source contents, no timestamps,
+and an input digest that allows stale indexes to be detected.
+
 ## Terminology
 
 - **Repository manifest** — committed description of a repository and its declared

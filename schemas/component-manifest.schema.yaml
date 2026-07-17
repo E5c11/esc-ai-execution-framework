@@ -26,6 +26,13 @@ properties:
           concerns:
             type: array
             items: {type: string, minLength: 1}
+      routing:
+        type: object
+        additionalProperties: false
+        properties:
+          aliases:
+            type: array
+            items: {type: string, minLength: 1}
   build:
     type: object
     additionalProperties: true
@@ -45,4 +52,3 @@ properties:
       sources:
         type: array
         items: {type: string, minLength: 1}
-

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/repository-index-v1.schema.json",
+  "title": "ESC AI Repository Index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_by", "input_digest", "repository", "components"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "generated_by": {"type": "string"},
+    "input_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "repository": {"type": "object"},
+    "components": {"type": "array"}
+  }
+}

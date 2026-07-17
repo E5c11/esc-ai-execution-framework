@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from esc_exec.indexing import generate_indexes, match_components, validate_indexes
 from esc_exec.manifests import generate_gradle_manifests, overall_exit_code, validate_repository
 from esc_exec.registry import add_route, default_registry_path, read_registry, resolve_route, validate_registry
 
@@ -40,7 +41,25 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("repository", type=Path)
     validate = manifest_commands.add_parser("validate")
     validate.add_argument("repository", type=Path)
+
+    index = subcommands.add_parser("index", help="Generate, validate, and query JSON routing indexes")
+    index_commands = index.add_subparsers(dest="index_command", required=True)
+    index_generate = index_commands.add_parser("generate")
+    index_generate.add_argument("repository")
+    index_validate = index_commands.add_parser("validate")
+    index_validate.add_argument("repository")
+    index_match = index_commands.add_parser("match")
+    index_match.add_argument("repository")
+    index_match.add_argument("query", nargs="+")
+    index_match.add_argument("--limit", type=int, default=3)
     return parser
+
+
+def _resolve_repository(value: str, registry: Path) -> Path:
+    candidate = Path(value).expanduser()
+    if candidate.is_dir():
+        return candidate.resolve()
+    return resolve_route(registry, "repositories", value)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -77,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_result(result)
         return result.exit_code
 
-    if args.manifest_command == "generate":
+    if args.command == "manifest" and args.manifest_command == "generate":
         try:
             paths = generate_gradle_manifests(args.repository)
         except (OSError, ValueError) as exc:
@@ -87,7 +106,44 @@ def main(argv: list[str] | None = None) -> int:
             print(f"GENERATED  {path}")
         return 0
 
-    results = validate_repository(args.repository)
-    for result in results:
-        _print_result(result)
-    return overall_exit_code(results)
+    if args.command == "manifest":
+        results = validate_repository(args.repository)
+        for result in results:
+            _print_result(result)
+        return overall_exit_code(results)
+
+    try:
+        repository = _resolve_repository(args.repository, registry)
+    except (KeyError, FileNotFoundError) as exc:
+        print(f"INCOMPLETE {exc.args[0]}")
+        return 2
+    if args.index_command == "generate":
+        try:
+            paths = generate_indexes(repository)
+        except (KeyError, OSError, ValueError) as exc:
+            print(f"INVALID    {exc}")
+            return 1
+        for path in paths:
+            print(f"GENERATED  {path}")
+        return 0
+    if args.index_command == "validate":
+        results = validate_indexes(repository)
+        for result in results:
+            _print_result(result)
+        return overall_exit_code(results)
+    try:
+        matches = match_components(repository, " ".join(args.query))[:max(args.limit, 0)]
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"INVALID    {exc}")
+        return 1
+    if not matches:
+        print("NO_MATCH   No component routing terms matched the query.")
+        return 2
+    for match in matches:
+        print(f"MATCH      {match.component_id} score={match.score}")
+        print(f"  index: {match.index}")
+        for reason in match.reasons:
+            print(f"  reason: {reason}")
+        for search_root in match.search_roots:
+            print(f"  search: {search_root}")
+    return 0

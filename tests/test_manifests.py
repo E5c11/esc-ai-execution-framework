@@ -1,5 +1,6 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import json
 import unittest
 
 from esc_exec.manifests import generate_gradle_manifests, validate_repository
@@ -59,6 +60,8 @@ class ManifestTests(unittest.TestCase):
         schemas = Path(__file__).parents[1] / "schemas"
         for schema in schemas.glob("*.schema.yaml"):
             self.assertIn("$schema", load_yaml(schema))
+        for schema in schemas.glob("*.schema.json"):
+            self.assertIn("$schema", json.loads(schema.read_text(encoding="utf-8")))
 
 
 if __name__ == "__main__":

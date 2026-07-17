@@ -1,5 +1,5 @@
 # ESC AI Execution Framework — Active Roadmap
-**Status:** Active — foundational sequence agreed; implementation not started
+**Status:** Active — capabilities are being implemented sequentially
 **Goal:** Establish portable execution contracts, prove them through OpenCode, and then
 build the efficiency capabilities one vertical slice at a time.
 
@@ -32,8 +32,8 @@ build the efficiency capabilities one vertical slice at a time.
 | # | Capability | Outcome | Status |
 |---|---|---|---|
 | 1 | [Component manifests and route discovery](../archive/component-manifests-and-route-discovery.md) | Schemas, setup instructions, local registry convention, generation/validation behavior | Complete |
-| 2 | Repository and component indexes | Manifest-driven routing catalog generated from declared components and repository structure | **Next** |
-| 3 | Provider-neutral execution contracts | Task specification, run, event, artifact, checkpoint, workspace, adapter, and policy schemas | Pending |
+| 2 | [Repository and component indexes](../archive/repository-component-indexes.md) | Manifest-driven routing catalog generated from declared components and repository structure | Complete |
+| 3 | Provider-neutral execution contracts | Task specification, run, event, artifact, checkpoint, workspace, adapter, and policy schemas | **Next** |
 | 4 | OpenCode reference adapter | Resolve a repo, load manifests, start/observe/resume a small OpenCode-backed run | Pending |
 | 5 | Central orchestrator bootstrap | Create the separate orchestrator repo once the first adapter validates the contracts | Pending |
 | 6 | Compact test and report summaries | Bounded structured verification results with full artifacts retained | Pending |

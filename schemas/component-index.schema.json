@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/component-index-v1.schema.json",
+  "title": "ESC AI Component Index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_by", "input_digest", "repository", "component", "routing", "search_roots", "structure"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "generated_by": {"type": "string"},
+    "input_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "repository": {"type": "string"},
+    "component": {"type": "object"},
+    "routing": {"type": "object"},
+    "search_roots": {"type": "array", "items": {"type": "string"}},
+    "structure": {"type": "object"}
+  }
+}
