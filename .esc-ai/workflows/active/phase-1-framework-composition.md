@@ -21,8 +21,10 @@ artifacts an obvious, repository-local home instead of a process-relative defaul
       `guides/execution-contracts.md` examples. The `.execution/runs/...` mentions in
       those same guides are left for the output-root deliverable below, since they
       describe the thing that deliverable changes.
-- [ ] Add `ecosystems:` to `schemas/route-registry.schema.yaml` and `registry.py`,
-      validated so every member ID is itself a registered repository.
+- [x] Add `ecosystems:` to `schemas/route-registry.schema.yaml` and `registry.py`
+      (`add_ecosystem`, validated in `validate_registry` against registered
+      repository IDs). `esc-exec route ecosystem add <name> <repo-id>...` and
+      `route list` expose it from the CLI.
 - [x] Resolve `.esc-ai/runs/<run-id>/` per task inside `OpenCodeAdapter.execute`,
       which now derives `run_dir` from the resolved repository instead of taking a
       caller-supplied `output_root` (removed from `execute()`, the CLI's `opencode

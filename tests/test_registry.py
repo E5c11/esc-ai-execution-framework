@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from esc_exec.model import ManifestState
-from esc_exec.registry import RENAMED_FRAMEWORK_IDS, add_route, resolve_route, validate_registry
+from esc_exec.registry import RENAMED_FRAMEWORK_IDS, add_ecosystem, add_route, resolve_route, validate_registry
 
 
 class RegistryTests(unittest.TestCase):
@@ -55,6 +55,29 @@ class RegistryTests(unittest.TestCase):
             result = validate_registry(registry)
             self.assertEqual(ManifestState.STALE, result.state)
             self.assertTrue(any("renamed framework ID" in message for message in result.messages))
+
+    def test_ecosystem_of_registered_repositories_is_valid(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "repositories.yaml"
+            for repo_id in ("ampm-backend", "ampm-mobile"):
+                repository = root / repo_id
+                repository.mkdir()
+                add_route(registry, "repositories", repo_id, repository)
+            add_ecosystem(registry, "ampm", ["ampm-backend", "ampm-mobile"])
+            self.assertEqual(ManifestState.VALID, validate_registry(registry).state)
+
+    def test_ecosystem_referencing_unregistered_repository_is_invalid(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "repositories.yaml"
+            repository = root / "ampm-backend"
+            repository.mkdir()
+            add_route(registry, "repositories", "ampm-backend", repository)
+            add_ecosystem(registry, "ampm", ["ampm-backend", "ampm-mobile"])
+            result = validate_registry(registry)
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("references unregistered repository: ampm-mobile" in message for message in result.messages))
 
 
 if __name__ == "__main__":

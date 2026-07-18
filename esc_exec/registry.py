@@ -31,7 +31,7 @@ def default_registry_path() -> Path:
 
 
 def empty_registry() -> dict[str, Any]:
-    return {"schema_version": 1, "repositories": {}, "frameworks": {}}
+    return {"schema_version": 1, "repositories": {}, "frameworks": {}, "ecosystems": {}}
 
 
 def read_registry(path: Path) -> dict[str, Any]:
@@ -43,6 +43,14 @@ def add_route(path: Path, category: str, route_id: str, target: Path) -> None:
     data.setdefault("schema_version", 1)
     routes = data.setdefault(category, {})
     routes[route_id] = {"path": str(target.expanduser().resolve())}
+    write_yaml(path, data)
+
+
+def add_ecosystem(path: Path, name: str, repository_ids: list[str]) -> None:
+    data = read_registry(path)
+    data.setdefault("schema_version", 1)
+    ecosystems = data.setdefault("ecosystems", {})
+    ecosystems[name] = {"repositories": list(repository_ids)}
     write_yaml(path, data)
 
 
@@ -85,7 +93,7 @@ def validate_registry(path: Path) -> ValidationResult:
     messages: list[str] = []
     if data.get("schema_version") != 1:
         messages.append("schema_version must be 1")
-    unknown = sorted(set(data) - {"schema_version", "repositories", "frameworks"})
+    unknown = sorted(set(data) - {"schema_version", "repositories", "frameworks", "ecosystems"})
     for key in unknown:
         messages.append(f"unknown top-level field: {key}")
     stale = False
@@ -106,7 +114,25 @@ def validate_registry(path: Path) -> ValidationResult:
                     f"frameworks.{route_id} uses a renamed framework ID; "
                     f"re-register it as `{RENAMED_FRAMEWORK_IDS[route_id]}`."
                 )
-    if any("must" in message or message.startswith("unknown") for message in messages):
+    ecosystems = data.get("ecosystems", {})
+    if not isinstance(ecosystems, dict):
+        messages.append("ecosystems must be a mapping")
+    else:
+        registered_repositories = data.get("repositories", {})
+        registered_repository_ids = set(registered_repositories) if isinstance(registered_repositories, dict) else set()
+        for name, ecosystem in ecosystems.items():
+            if not isinstance(ecosystem, dict) or not isinstance(ecosystem.get("repositories"), list) or not ecosystem["repositories"]:
+                messages.append(f"ecosystems.{name}.repositories must be a non-empty list")
+                continue
+            for repository_id in ecosystem["repositories"]:
+                if repository_id not in registered_repository_ids:
+                    messages.append(f"ecosystems.{name} references unregistered repository: {repository_id}")
+    if any(
+        "must" in message
+        or message.startswith("unknown")
+        or "references unregistered repository" in message
+        for message in messages
+    ):
         return ValidationResult(ManifestState.INVALID, str(path), messages)
     if stale:
         return ValidationResult(ManifestState.STALE, str(path), messages)
