@@ -34,7 +34,7 @@ stored in committed contracts.
 ## Validation
 
 ```bash
-esc-exec contract validate task workflows/active/example/task.yaml
+esc-exec contract validate task .esc-ai/workflows/active/example/task.yaml
 esc-exec contract validate run .execution/runs/run-001/run.json
 esc-exec contract validate event .execution/runs/run-001/events.jsonl
 esc-exec contract validate-set examples/contracts

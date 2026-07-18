@@ -3,7 +3,7 @@
 This directory tracks development and refinement of the ESC AI Execution Framework.
 It does not contain feature workflows for consuming projects.
 
-For how to use the framework, see [`INSTRUCTIONS.md`](../INSTRUCTIONS.md). That file is
+For how to use the framework, see [`INSTRUCTIONS.md`](../../INSTRUCTIONS.md). That file is
 the canonical instruction source; framework workflows should reference it rather than
 duplicate it.
 

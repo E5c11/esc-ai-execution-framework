@@ -13,7 +13,7 @@ class CheckpointTests(unittest.TestCase):
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.task = self.root / "workflows/active/task-1/task.yaml"
+        self.task = self.root / ".esc-ai/workflows/active/task-1/task.yaml"
         write_yaml(self.task, {
             "schema_version": 1,
             "task": {"id": "task-1", "title": "Test", "objective": "Finish the work", "repository": "repo", "status": "active"},
@@ -29,9 +29,9 @@ class CheckpointTests(unittest.TestCase):
             self.root, self.task, run_id="run-1", status="blocked",
             completed=["Located the failing boundary."], decisions=["Keep stable rule ID."],
             remaining=["Fix dependency."], blockers=["Needs API decision."],
-            artifacts=[".execution/runs/run-1/architecture.json"], last_event_sequence=4,
+            artifacts=[".esc-ai/runs/run-1/architecture.json"], last_event_sequence=4,
         )
-        self.assertEqual(self.root / "workflows/active/task-1/checkpoint.yaml", path)
+        self.assertEqual(self.root / ".esc-ai/workflows/active/task-1/checkpoint.yaml", path)
         self.assertEqual(ManifestState.VALID, validate_contract("checkpoint", path).state)
 
         update_checkpoint(

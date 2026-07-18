@@ -15,14 +15,19 @@ artifacts an obvious, repository-local home instead of a process-relative defaul
 - [x] Migration diagnostic for the renamed architecture-framework ID
       (`RENAMED_FRAMEWORK_IDS` in `registry.py`; wired into `resolve_route`,
       `validate_registry`, and `validate_repository`).
-- [ ] Rename `workflows/` -> `.esc-ai/workflows/` in this repo. Update
+- [x] Rename `workflows/` -> `.esc-ai/workflows/` in this repo. Updated
       `esc_exec/checkpoints.py`'s `CHECKPOINT_ROOT`, `tests/test_checkpoints.py`'s
       fixture paths, `INSTRUCTIONS.md`, and the `guides/durable-checkpoints.md` /
-      `guides/execution-contracts.md` examples.
+      `guides/execution-contracts.md` examples. The `.execution/runs/...` mentions in
+      those same guides are left for the output-root deliverable below, since they
+      describe the thing that deliverable changes.
 - [ ] Add `ecosystems:` to `schemas/route-registry.schema.yaml` and `registry.py`,
       validated so every member ID is itself a registered repository.
 - [ ] Resolve `.esc-ai/runs/<run-id>/` per task inside `OpenCodeAdapter.execute`
-      instead of a single caller-supplied `output_root`.
+      instead of a single caller-supplied `output_root`. This also changes the
+      `Runtime` protocol/`Scheduler` in `esc-ai-orchestrator` (the failure-checkpoint
+      candidate path currently reuses the same orchestrator-relative `output_root`)
+      and the "Runtime failure candidates" section of `guides/durable-checkpoints.md`.
 - [ ] Define a versioned framework descriptor
       (`schemas/framework-descriptor.schema.yaml` + `esc-framework.yaml` at this
       repo's and the architecture framework's root) and compatible-major-version

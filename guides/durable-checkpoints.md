@@ -9,8 +9,8 @@ decisions, not conversation history.
 Durable task state lives at:
 
 ```text
-workflows/active/<task-id>/task.yaml
-workflows/active/<task-id>/checkpoint.yaml
+.esc-ai/workflows/active/<task-id>/task.yaml
+.esc-ai/workflows/active/<task-id>/checkpoint.yaml
 ```
 
 The checkpoint stores the repository-relative task path, objective, optional run ID,
@@ -18,7 +18,7 @@ completed work, decisions, remaining work, blockers, artifact references, and th
 portable event sequence when known. Absolute paths and secrets are forbidden.
 
 Task IDs are restricted to safe alphanumeric dot/dash/underscore identifiers so
-discovery cannot escape `workflows/active`.
+discovery cannot escape `.esc-ai/workflows/active`.
 
 ## Create a handoff
 
@@ -26,7 +26,7 @@ The task specification must already be inside the repository:
 
 ```bash
 esc-exec checkpoint create ampm-backend \
-  workflows/active/task-123/task.yaml \
+  .esc-ai/workflows/active/task-123/task.yaml \
   --run-id run-123 \
   --status blocked \
   --completed "Reproduced the dependency violation." \
@@ -75,5 +75,5 @@ from polluting project history while making genuine incomplete work resumable.
 ## Completion
 
 When the task is complete, archive its workflow according to the repository's workflow
-convention. Do not leave a ready-to-resume checkpoint under `workflows/active` for a
-completed task.
+convention. Do not leave a ready-to-resume checkpoint under `.esc-ai/workflows/active`
+for a completed task.

@@ -12,7 +12,7 @@ from esc_exec.yaml_io import load_yaml, write_yaml
 
 
 TASK_ID = re.compile(r"^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$")
-CHECKPOINT_ROOT = Path("workflows/active")
+CHECKPOINT_ROOT = Path(".esc-ai/workflows/active")
 
 
 def _now() -> str:

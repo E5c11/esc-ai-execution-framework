@@ -104,7 +104,7 @@ Run declared architecture fitness functions as part of their component gate and 
 to violations by stable rule ID. Do not replace a missing architecture profile with
 implicit global rules.
 
-Store resumable task state at `workflows/active/<task-id>/checkpoint.yaml`. Keep entries
+Store resumable task state at `.esc-ai/workflows/active/<task-id>/checkpoint.yaml`. Keep entries
 bounded, preserve decisions, reference full artifacts by relative path, and commit the
 checkpoint after review. Treat orchestrator failure checkpoints as transient candidates
 until their project-relevant state is deliberately promoted.
