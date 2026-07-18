@@ -15,6 +15,32 @@ DEPENDENCY_GRAPH = "esc-dependencies.json"
 PROJECT_DEPENDENCY = re.compile(
     r"(?P<configuration>[A-Za-z][A-Za-z0-9]*)\s*\(\s*project\s*\(\s*[\"'](?P<project>:[^\"']+)[\"']\s*\)\s*\)"
 )
+# Gradle's type-safe project accessors (settings.gradle.kts:
+# enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")) let build scripts write
+# `implementation(projects.core.common)` instead of `project(":core:common")`.
+# Both forms are common in real repositories, so both must be recognized here.
+TYPESAFE_PROJECT_DEPENDENCY = re.compile(
+    r"(?P<configuration>[A-Za-z][A-Za-z0-9]*)\s*\(\s*projects(?P<accessor>(?:\.[A-Za-z][A-Za-z0-9]*)+)\s*\)"
+)
+
+
+def _project_path_to_accessor(project_path: str) -> str:
+    """
+    Mirror Gradle's own path-segment-to-camelCase conversion for type-safe
+    project accessors: each `:`-separated segment is split on `-`/`_` and
+    joined back as camelCase, then segments are chained with `.`.
+    ":app-host" -> "appHost", ":core:common" -> "core.common".
+    """
+    accessors = []
+    for segment in project_path.strip(":").split(":"):
+        words = [word for word in re.split(r"[-_]", segment) if word]
+        if not words:
+            continue
+        camel = words[0][:1].lower() + words[0][1:]
+        for word in words[1:]:
+            camel += word[:1].upper() + word[1:]
+        accessors.append(camel)
+    return ".".join(accessors)
 
 
 def _digest(parts: list[bytes]) -> str:
@@ -49,14 +75,28 @@ def build_dependency_graph(repository: Path) -> dict[str, Any]:
         if build_path.is_file():
             inputs.append(build_path.read_bytes())
         nodes.append({"id": component_id, "project": project, "manifest": declared["manifest"]})
+    accessor_to_component = {
+        _project_path_to_accessor(project): component
+        for project, component in project_to_component.items()
+    }
     edges = []
     for consumer, (manifest_path, manifest) in manifests.items():
         component_root = repository / manifest["component"]["path"]
         build_path = component_root / manifest.get("paths", {}).get("build", "build.gradle.kts")
         if not build_path.is_file():
             continue
-        for match in PROJECT_DEPENDENCY.finditer(build_path.read_text(encoding="utf-8")):
+        text = build_path.read_text(encoding="utf-8")
+        for match in PROJECT_DEPENDENCY.finditer(text):
             dependency = project_to_component.get(match.group("project"))
+            if dependency and dependency != consumer:
+                edges.append({
+                    "consumer": consumer,
+                    "dependency": dependency,
+                    "configuration": match.group("configuration"),
+                    "source": str(build_path.relative_to(repository)),
+                })
+        for match in TYPESAFE_PROJECT_DEPENDENCY.finditer(text):
+            dependency = accessor_to_component.get(match.group("accessor").lstrip("."))
             if dependency and dependency != consumer:
                 edges.append({
                     "consumer": consumer,
