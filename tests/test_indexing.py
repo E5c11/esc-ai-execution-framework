@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from esc_exec.indexing import generate_indexes, match_components, validate_indexes
-from esc_exec.manifests import generate_gradle_manifests
+from esc_exec.manifests import component_manifest_path, generate_gradle_manifests
 from esc_exec.model import ManifestState
 from esc_exec.yaml_io import load_yaml, write_yaml
 
@@ -33,7 +33,7 @@ class IndexingTests(unittest.TestCase):
         self.temp.cleanup()
 
     def _complete(self, component: str, purpose: str, aliases: list[str]):
-        path = self.root / component / "esc-component.yaml"
+        path = component_manifest_path(self.root, component)
         data = load_yaml(path)
         data["component"]["purpose"] = purpose
         data["component"]["ownership"] = {
@@ -46,7 +46,7 @@ class IndexingTests(unittest.TestCase):
     def test_generates_root_and_component_json_indexes(self):
         paths = generate_indexes(self.root)
         self.assertEqual(3, len(paths))
-        content = (self.root / "esc-index.json").read_text(encoding="utf-8")
+        content = (self.root / ".esc-ai/esc-index.json").read_text(encoding="utf-8")
         self.assertTrue(content.endswith("\n"))
         self.assertIn('"components": [', content)
 
@@ -66,7 +66,7 @@ class IndexingTests(unittest.TestCase):
     def test_inventory_contains_entry_points_and_role_counts(self):
         generate_indexes(self.root)
         import json
-        data = json.loads((self.root / "auth/esc-index.json").read_text(encoding="utf-8"))
+        data = json.loads((self.root / ".esc-ai/components/auth/esc-index.json").read_text(encoding="utf-8"))
         self.assertEqual(1, data["structure"]["role_counts"]["entities"])
         self.assertEqual(
             ["src/main/kotlin/com/example/backend/auth/PasswordResetService.kt"],
@@ -87,7 +87,7 @@ class IndexingTests(unittest.TestCase):
     def test_root_index_does_not_duplicate_component_search_details(self):
         generate_indexes(self.root)
         import json
-        data = json.loads((self.root / "esc-index.json").read_text(encoding="utf-8"))
+        data = json.loads((self.root / ".esc-ai/esc-index.json").read_text(encoding="utf-8"))
         component = data["components"][0]
         self.assertNotIn("search_roots", component)
         self.assertNotIn("entry_point_terms", component["routing"])

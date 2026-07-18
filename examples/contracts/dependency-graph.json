@@ -4,8 +4,8 @@
   "input_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "repository": "ampm-backend",
   "nodes": [
-    {"id": "content", "project": ":content", "manifest": "content/esc-component.yaml"},
-    {"id": "recommendations", "project": ":recommendations", "manifest": "recommendations/esc-component.yaml"}
+    {"id": "content", "project": ":content", "manifest": ".esc-ai/components/content/esc-component.yaml"},
+    {"id": "recommendations", "project": ":recommendations", "manifest": ".esc-ai/components/recommendations/esc-component.yaml"}
   ],
   "edges": [
     {"consumer": "recommendations", "dependency": "content", "configuration": "implementation", "source": "recommendations/build.gradle.kts"}

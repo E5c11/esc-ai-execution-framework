@@ -5,6 +5,9 @@ import unittest
 from esc_exec.contracts import validate_contract
 from esc_exec.dependencies import generate_dependency_graph
 from esc_exec.indexing import generate_indexes
+from esc_exec.manifests import (
+    component_manifest_path, component_manifest_relative_path, repository_manifest_path,
+)
 from esc_exec.model import ManifestState
 from esc_exec.planning import (
     generate_multi_repository_workflow,
@@ -19,12 +22,12 @@ from esc_exec.yaml_io import load_yaml, write_yaml
 class PlanningTests(unittest.TestCase):
     def _make_repository(self, root: Path, repository_id: str, component_id: str, purpose: str, domains: list[str]) -> None:
         (root / component_id).mkdir(parents=True)
-        write_yaml(root / "esc-execution.yaml", {
+        write_yaml(repository_manifest_path(root), {
             "schema_version": 1,
             "repository": {"id": repository_id, "type": "gradle-multi-project", "purpose": "test"},
-            "components": [{"id": component_id, "manifest": f"{component_id}/esc-component.yaml"}],
+            "components": [{"id": component_id, "manifest": component_manifest_relative_path(component_id)}],
         })
-        write_yaml(root / component_id / "esc-component.yaml", {
+        write_yaml(component_manifest_path(root, component_id), {
             "schema_version": 1,
             "component": {
                 "id": component_id, "type": "gradle-module", "path": component_id, "purpose": purpose,

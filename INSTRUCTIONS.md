@@ -32,21 +32,32 @@ Framework and the consuming project's own documentation or framework extensions.
 
 ## How Consuming Projects Use It
 
-Each consuming repository provides a committed repository manifest at:
+Every escape-ai-owned generated/managed file lives under a repository-local `.esc-ai/`
+directory rather than scattered at repository root or inside each component's own
+source directory. Each consuming repository provides a committed repository manifest
+at:
 
 ```text
-esc-execution.yaml
+.esc-ai/esc-execution.yaml
 ```
 
-Each participating module or package owns a committed component manifest colocated at
-its root:
+Each participating module or package owns a committed component manifest, flat and
+keyed by the component's stable ID rather than mirroring its real (and
+expected-to-change) filesystem path:
 
 ```text
-<component>/esc-component.yaml
+.esc-ai/components/<component-id>/esc-component.yaml
 ```
+
+The component's real source location (`component.path`, e.g. `content`) is completely
+unaffected by this convention -- it always resolves as `repository_root /
+component.path`. Only the manifest's own storage location moved.
 
 The repository manifest explicitly declares its component manifests. Normal discovery
-must not recursively scan for undeclared manifests.
+must not recursively scan for undeclared manifests: escape-ai always resolves a
+repository through the machine-local registry by ID first, then reads this
+conventional relative path under the already-known root -- it never discovers a
+repository by scanning a directory tree for these files.
 
 Manifests contain only project-specific execution facts, such as:
 
@@ -112,7 +123,7 @@ bounded, preserve decisions, reference full artifacts by relative path, and comm
 checkpoint after review. Treat orchestrator failure checkpoints as transient candidates
 until their project-relevant state is deliberately promoted.
 
-Validate `esc-dependencies.json` before impact planning. Use the transitive consumer
+Validate `.esc-ai/esc-dependencies.json` before impact planning. Use the transitive consumer
 closure to populate the impact gate from consumer-owned verification profiles; never
 silently omit a consumer because its profile is missing.
 
@@ -129,8 +140,8 @@ necessary to complete a task correctly.
 Repository and component routing indexes are committed as canonical JSON:
 
 ```text
-<repository>/esc-index.json
-<component>/esc-index.json
+<repository>/.esc-ai/esc-index.json
+<repository>/.esc-ai/components/<component-id>/esc-index.json
 ```
 
 Do not maintain a Markdown or other duplicate index representation. Human-readable

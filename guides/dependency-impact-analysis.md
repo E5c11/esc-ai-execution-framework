@@ -5,7 +5,7 @@ cannot: which declared components consume the component being changed?
 
 ## Canonical graph
 
-Generate and commit the root `esc-dependencies.json`:
+Generate and commit the root `.esc-ai/esc-dependencies.json`:
 
 ```bash
 esc-exec dependency generate ampm-backend
@@ -23,9 +23,11 @@ Node and edge ordering is deterministic. The input digest covers the repository 
 component manifests plus component build files, so a build dependency change makes the
 graph stale and blocks impact planning until regeneration.
 
-Only components declared in `esc-execution.yaml` appear as nodes. The root application
-is not treated as an undeclared component; repository-level verification remains in the
-final gate.
+Only components declared in `.esc-ai/esc-execution.yaml` appear as nodes. The root
+application is not treated as an undeclared component; repository-level verification
+remains in the final gate. Each component's `build.gradle.kts` is resolved relative to
+its real source path (`component.path` under the repository root), never relative to
+where that component's manifest bundle happens to be stored.
 
 ## Analyze consumers
 

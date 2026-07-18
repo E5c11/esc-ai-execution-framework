@@ -1,5 +1,5 @@
 # ESC AI Execution Framework — Active Roadmap
-**Status:** Capability 19 complete (Phase 8 execution-framework wiring)
+**Status:** Capability 20 complete (`.esc-ai/` generated-artifact consolidation)
 **Goal:** Establish portable execution contracts, prove them through OpenCode, and then
 build the efficiency capabilities one vertical slice at a time.
 
@@ -13,8 +13,15 @@ build the efficiency capabilities one vertical slice at a time.
   specification, run, event, artifact, checkpoint, workspace, adapter, and policy.
 - Component manifests are colocated with and owned by the modules/packages they
   describe.
-- A committed root `esc-execution.yaml` explicitly declares component manifests at
-  `<component>/esc-component.yaml`.
+- Every escape-ai-owned generated/managed file (repository manifest, root index,
+  dependency graph, `INSTRUCTIONS.md`, and every per-component manifest/index/
+  verification-profile/architecture-profile) lives under a repository-local
+  `.esc-ai/` directory: `.esc-ai/esc-execution.yaml` for the repository manifest,
+  `.esc-ai/components/<component-id>/esc-component.yaml` for each component manifest
+  (flat and keyed by stable component ID, not mirroring the component's real,
+  expected-to-change filesystem path). The component's real source location
+  (`component.path`) is unaffected and always resolves as `repository_root /
+  component.path`.
 - A machine-local route registry resolves stable repository/framework IDs to absolute
   checkout paths and flags missing or stale registrations.
 - Reliably derivable structural facts are generated; semantic facts are human-authored.
@@ -50,6 +57,7 @@ build the efficiency capabilities one vertical slice at a time.
 | 17 | [Feature/fix planning and workflow generation](../archive/phase-7-planning-and-workflow-generation.md) | Initiative/task-graph contracts, typed planning questions in place of a live conversation, single- and multi-repository workflow generation validated before any write | Complete |
 | 18 | [Policy-to-tool-grant enforcement](../archive/policy-to-tool-grant-enforcement.md) | OpenCode tool grants actually derived from policy.yaml permissions instead of a hardcoded read-only constant; the grant used is recorded in run.json for audit | Complete |
 | 19 | [Phase 8 execution-framework wiring](../archive/phase-8-execution-lifecycle-wiring.md) | Precedence-ordered instruction bundle composed and recorded per run; minimal onboarding/planning process-metrics contract | Complete |
+| 20 | [`.esc-ai/` generated-artifact consolidation](../archive/escape-ai-directory-consolidation.md) | Every escape-ai-owned generated/managed file moved under `.esc-ai/`, component manifests flat and keyed by stable ID instead of mirroring filesystem path; fixed two latent path-resolution bugs (dependency-graph build path, architecture-check component root) that manifest/source colocation had been masking | Complete |
 
 ## Capability 1 — Initial Scope
 

@@ -12,10 +12,13 @@ from esc_exec.architecture_lookup import (
 )
 from esc_exec.dependencies import generate_dependency_graph
 from esc_exec.indexing import generate_indexes
-from esc_exec.manifests import COMPONENT_MANIFEST, REPOSITORY_MANIFEST, generate_gradle_manifests
+from esc_exec.manifests import (
+    component_manifest_path, component_manifest_relative_path, generate_gradle_manifests,
+    repository_manifest_path, repository_manifest_relative_path,
+)
 from esc_exec.registry import resolve_route
 from esc_exec.task_context import generate_gradle_verification_profile
-from esc_exec.workflow_bootstrap import bootstrap_workflow_inheritance
+from esc_exec.workflow_bootstrap import INSTRUCTIONS_PATH, bootstrap_workflow_inheritance
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
@@ -53,8 +56,8 @@ def _load_profile_doc_map(registry_path: Path | None) -> dict[str, Any] | None:
         return None
 
 
-def _existing_profile_ids(root: Path, relative: Path) -> list[str]:
-    manifest_path = root / relative / COMPONENT_MANIFEST
+def _existing_profile_ids(root: Path, component_id: str) -> list[str]:
+    manifest_path = component_manifest_path(root, component_id)
     if not manifest_path.is_file():
         return []
     existing = load_yaml(manifest_path) or {}
@@ -70,13 +73,14 @@ def _input_digest(adapter_name: str, repository_id: str, components: list[tuple[
 
 def _repository_file_entry(root: Path, repository_id: str, components: list[tuple[str, Path]]) -> dict[str, Any]:
     detected_ids = sorted(component_id for component_id, _ in components)
-    path = root / REPOSITORY_MANIFEST
+    path = repository_manifest_path(root)
+    relative_manifest = repository_manifest_relative_path()
     if not path.exists():
         return {
-            "path": REPOSITORY_MANIFEST,
+            "path": relative_manifest,
             "action": "create",
             "evidence": (
-                f"No {REPOSITORY_MANIFEST} found; detected repository `{repository_id}` "
+                f"No {relative_manifest} found; detected repository `{repository_id}` "
                 f"with components: {', '.join(detected_ids) or 'none'}."
             ),
         }
@@ -87,12 +91,12 @@ def _repository_file_entry(root: Path, repository_id: str, components: list[tupl
     )
     if existing_id == repository_id and existing_ids == detected_ids:
         return {
-            "path": REPOSITORY_MANIFEST,
+            "path": relative_manifest,
             "action": "preserve",
             "evidence": "Existing manifest matches detected structure.",
         }
     return {
-        "path": REPOSITORY_MANIFEST,
+        "path": relative_manifest,
         "action": "update",
         "evidence": (
             f"Detected repository `{repository_id}` with components {detected_ids}; "
@@ -107,8 +111,8 @@ def _component_file_entries(
     entries: list[dict[str, Any]] = []
     questions: list[dict[str, Any]] = []
     for component_id, relative in components:
-        manifest_path = root / relative / COMPONENT_MANIFEST
-        relative_manifest = str(relative / COMPONENT_MANIFEST)
+        manifest_path = component_manifest_path(root, component_id)
+        relative_manifest = component_manifest_relative_path(component_id)
         if not manifest_path.exists():
             entries.append({
                 "path": relative_manifest,
@@ -147,11 +151,11 @@ def _component_file_entries(
 
 
 def _deprecated_component_entries(root: Path, components: list[tuple[str, Path]]) -> list[dict[str, Any]]:
-    repository_path = root / REPOSITORY_MANIFEST
+    repository_path = repository_manifest_path(root)
     if not repository_path.exists():
         return []
     existing = load_yaml(repository_path)
-    detected_manifests = {str(relative / COMPONENT_MANIFEST) for _, relative in components}
+    detected_manifests = {component_manifest_relative_path(component_id) for component_id, _ in components}
     entries: list[dict[str, Any]] = []
     for item in existing.get("components", []):
         if isinstance(item, dict) and isinstance(item.get("manifest"), str) and item["manifest"] not in detected_manifests:
@@ -187,7 +191,7 @@ def _architecture_signals(
     )
 
     for component_id, relative in components:
-        if _existing_profile_ids(root, relative):
+        if _existing_profile_ids(root, component_id):
             continue
         if imported is not None:
             if repository_suggestion:
@@ -227,7 +231,7 @@ def analyze_repository(root: Path, registry_path: Path | None = None) -> dict[st
         "files": [repository_entry, *component_entries, *deprecated_entries],
         "semantic_questions": questions + architecture_questions,
         "existing_adoption": {
-            "instructions_file": (root / "INSTRUCTIONS.md").is_file(),
+            "instructions_file": (root / INSTRUCTIONS_PATH).is_file(),
             "workflows_directory": (root / ".esc-ai" / "workflows").is_dir(),
             "project_profile": (root / "context" / "project-profile.yaml").is_file(),
         },
@@ -272,7 +276,7 @@ def apply_onboarding_answers(
     written: list[Path] = list(generated)
     empty_profile_id_suggestions: list[str] = []
     for component_id, relative in components:
-        manifest_path = root / relative / COMPONENT_MANIFEST
+        manifest_path = component_manifest_path(root, component_id)
         manifest = load_yaml(manifest_path)
         answer = answers.get(component_id, {})
         if "purpose" in answer:
@@ -312,7 +316,7 @@ def apply_onboarding_answers(
             architecture_index = None
 
     for component_id, relative in components:
-        manifest_path = root / relative / COMPONENT_MANIFEST
+        manifest_path = component_manifest_path(root, component_id)
         manifest = load_yaml(manifest_path)
         profile_ids = manifest.get("architecture", {}).get("profile_ids")
         if profile_ids and architecture_index is not None:
@@ -341,7 +345,7 @@ def apply_onboarding_answers(
     written.extend(generate_indexes(root))
     written.append(generate_dependency_graph(root))
 
-    repository_manifest = load_yaml(root / REPOSITORY_MANIFEST)
+    repository_manifest = load_yaml(repository_manifest_path(root))
     workflow_inheritance = bootstrap_workflow_inheritance(root, repository_manifest)
 
     return {

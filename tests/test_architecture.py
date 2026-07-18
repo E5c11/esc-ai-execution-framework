@@ -5,6 +5,9 @@ import unittest
 from esc_exec.architecture import check_architecture, generate_architecture_profile
 from esc_exec.contracts import validate_contract
 from esc_exec.indexing import generate_indexes
+from esc_exec.manifests import (
+    component_manifest_path, component_manifest_relative_path, repository_manifest_path,
+)
 from esc_exec.model import ManifestState
 from esc_exec.yaml_io import load_yaml, write_yaml
 
@@ -13,6 +16,12 @@ class ArchitectureTests(unittest.TestCase):
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.root = Path(self.temporary.name)
+        # The component's real source tree (root/content/) is deliberately distinct
+        # from where its manifest bundle is stored (.esc-ai/components/content/) --
+        # this is what makes this fixture a real regression test for the
+        # component_root resolution fix in esc_exec.architecture: if component_root
+        # were still resolved as manifest_path.parent, rule checking would never
+        # find this source tree at all.
         source = self.root / "content/src/main/kotlin"
         source.mkdir(parents=True)
         (source / "Allowed.kt").write_text("import com.example.core.Api\n", encoding="utf-8")
@@ -20,12 +29,12 @@ class ArchitectureTests(unittest.TestCase):
             "package content\nimport com.example.portal.Secret\nimport com.example.portal.Other\n",
             encoding="utf-8",
         )
-        write_yaml(self.root / "esc-execution.yaml", {
+        write_yaml(repository_manifest_path(self.root), {
             "schema_version": 1,
             "repository": {"id": "repo", "type": "gradle-multi-project", "purpose": "test"},
-            "components": [{"id": "content", "manifest": "content/esc-component.yaml"}],
+            "components": [{"id": "content", "manifest": component_manifest_relative_path("content")}],
         })
-        write_yaml(self.root / "content/esc-component.yaml", {
+        write_yaml(component_manifest_path(self.root, "content"), {
             "schema_version": 1,
             "component": {"id": "content", "type": "gradle-module", "path": "content", "purpose": "content"},
             "build": {"system": "gradle", "project": ":content"},

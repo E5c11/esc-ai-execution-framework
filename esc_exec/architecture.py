@@ -8,6 +8,7 @@ from typing import Any
 
 from esc_exec.indexing import INDEX_FILE
 from esc_exec.json_io import load_json, write_json
+from esc_exec.manifests import ESC_AI_DIR
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
@@ -26,7 +27,7 @@ def _owned_path(root: Path, value: str, label: str) -> Path:
 
 
 def generate_architecture_profile(repository: Path, component_id: str) -> Path:
-    index = load_json(repository / INDEX_FILE)
+    index = load_json(repository / ESC_AI_DIR / INDEX_FILE)
     component = next((item for item in index["components"] if item["id"] == component_id), None)
     if not component:
         raise ValueError(f"component is not in repository index: {component_id}")
@@ -85,7 +86,7 @@ def _violations(component_root: Path, rule: dict[str, Any]) -> list[dict[str, An
 
 
 def check_architecture(repository: Path, component_id: str, output: Path) -> dict[str, Any]:
-    index = load_json(repository / INDEX_FILE)
+    index = load_json(repository / ESC_AI_DIR / INDEX_FILE)
     component = next((item for item in index["components"] if item["id"] == component_id), None)
     if not component:
         raise ValueError(f"component is not in repository index: {component_id}")
@@ -113,7 +114,10 @@ def check_architecture(repository: Path, component_id: str, output: Path) -> dic
     if not isinstance(max_violations, int) or not 1 <= max_violations <= 100 or not isinstance(max_evidence, int) or not 1 <= max_evidence <= 1000:
         raise ValueError("architecture profile limits are invalid")
 
-    component_root = manifest_path.parent
+    # Rules check the component's real source tree, which is repository_root /
+    # component["path"] -- completely independent of where the manifest bundle
+    # itself is stored (manifest_path.parent, now .esc-ai/components/<id>/).
+    component_root = repository / component["path"]
     results = []
     for rule in sorted(rules, key=lambda item: item["id"]):
         all_violations = _violations(component_root, rule)

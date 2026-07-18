@@ -7,12 +7,12 @@
   "input_digest": "b7a2c1e4f6d9081726354a9bcdef0123456789abcdef0123456789abcdef012",
   "files": [
     {
-      "path": "esc-execution.yaml",
+      "path": ".esc-ai/esc-execution.yaml",
       "action": "preserve",
       "evidence": "Existing manifest matches detected structure."
     },
     {
-      "path": "content/esc-component.yaml",
+      "path": ".esc-ai/components/content/esc-component.yaml",
       "action": "create",
       "evidence": "No manifest found for detected component `content` at `content`."
     }

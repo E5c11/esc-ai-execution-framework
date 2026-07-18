@@ -6,6 +6,9 @@ import unittest
 from esc_exec.contracts import validate_contract
 from esc_exec.indexing import generate_indexes
 from esc_exec.dependencies import generate_dependency_graph
+from esc_exec.manifests import (
+    component_manifest_path, component_manifest_relative_path, repository_manifest_path,
+)
 from esc_exec.model import ManifestState
 from esc_exec.registry import add_route
 from esc_exec.task_context import (
@@ -21,12 +24,12 @@ class TaskContextTests(unittest.TestCase):
         self.temporary = TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / "content").mkdir()
-        write_yaml(self.root / "esc-execution.yaml", {
+        write_yaml(repository_manifest_path(self.root), {
             "schema_version": 1,
             "repository": {"id": "repo", "type": "gradle-multi-project", "purpose": "test"},
-            "components": [{"id": "content", "manifest": "content/esc-component.yaml"}],
+            "components": [{"id": "content", "manifest": component_manifest_relative_path("content")}],
         })
-        write_yaml(self.root / "content/esc-component.yaml", {
+        write_yaml(component_manifest_path(self.root, "content"), {
             "schema_version": 1,
             "component": {"id": "content", "type": "gradle-module", "path": "content", "purpose": "Owns content"},
             "build": {"system": "gradle", "project": ":content"},
@@ -58,7 +61,7 @@ class TaskContextTests(unittest.TestCase):
         return registry
 
     def test_resolves_declared_architecture_documents(self):
-        write_yaml(self.root / "content/esc-component.yaml", {
+        write_yaml(component_manifest_path(self.root, "content"), {
             "schema_version": 1,
             "component": {"id": "content", "type": "gradle-module", "path": "content", "purpose": "Owns content"},
             "build": {"system": "gradle", "project": ":content"},
@@ -82,7 +85,7 @@ class TaskContextTests(unittest.TestCase):
         self.assertEqual(ManifestState.VALID, validate_contract("task-context", output).state)
 
     def test_missing_registry_path_with_declared_selector_raises(self):
-        write_yaml(self.root / "content/esc-component.yaml", {
+        write_yaml(component_manifest_path(self.root, "content"), {
             "schema_version": 1,
             "component": {"id": "content", "type": "gradle-module", "path": "content", "purpose": "Owns content"},
             "build": {"system": "gradle", "project": ":content"},
@@ -95,7 +98,7 @@ class TaskContextTests(unittest.TestCase):
             build_task_context(self.root, self.task, self.root / "task-context.json")
 
     def test_missing_and_stub_architecture_documents_are_reported(self):
-        write_yaml(self.root / "content/esc-component.yaml", {
+        write_yaml(component_manifest_path(self.root, "content"), {
             "schema_version": 1,
             "component": {"id": "content", "type": "gradle-module", "path": "content", "purpose": "Owns content"},
             "build": {"system": "gradle", "project": ":content"},

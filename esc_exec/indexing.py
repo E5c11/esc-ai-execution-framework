@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from esc_exec.json_io import load_json, write_json
-from esc_exec.manifests import COMPONENT_MANIFEST, REPOSITORY_MANIFEST
+from esc_exec.manifests import (
+    ESC_AI_DIR, repository_manifest_path, repository_manifest_relative_path,
+)
 from esc_exec.model import ManifestState, ValidationResult
 from esc_exec.yaml_io import load_yaml
 
@@ -137,7 +139,7 @@ def build_component_index(root: Path, repository_id: str, manifest_path: Path) -
 
 def build_indexes(root: Path) -> tuple[dict[str, Any], list[tuple[Path, dict[str, Any]]]]:
     root = root.resolve()
-    repository_path = root / REPOSITORY_MANIFEST
+    repository_path = repository_manifest_path(root)
     repository_manifest = load_yaml(repository_path)
     repository_id = repository_manifest["repository"]["id"]
     component_indexes: list[tuple[Path, dict[str, Any]]] = []
@@ -170,7 +172,7 @@ def build_indexes(root: Path) -> tuple[dict[str, Any], list[tuple[Path, dict[str
         "repository": {
             "id": repository_id,
             "purpose": repository_manifest["repository"].get("purpose", ""),
-            "manifest": REPOSITORY_MANIFEST,
+            "manifest": repository_manifest_relative_path(),
         },
         "components": root_components,
     }
@@ -184,7 +186,7 @@ def generate_indexes(root: Path) -> list[Path]:
     for path, data in component_indexes:
         write_json(path, data)
         written.append(path)
-    root_path = root / INDEX_FILE
+    root_path = root / ESC_AI_DIR / INDEX_FILE
     write_json(root_path, root_index)
     return [root_path, *written]
 
@@ -194,8 +196,8 @@ def validate_indexes(root: Path) -> list[ValidationResult]:
     try:
         expected_root, expected_components = build_indexes(root)
     except (KeyError, OSError, ValueError) as exc:
-        return [ValidationResult(ManifestState.INVALID, str(root / INDEX_FILE), [str(exc)])]
-    expected = [(root / INDEX_FILE, expected_root), *expected_components]
+        return [ValidationResult(ManifestState.INVALID, str(root / ESC_AI_DIR / INDEX_FILE), [str(exc)])]
+    expected = [(root / ESC_AI_DIR / INDEX_FILE, expected_root), *expected_components]
     results: list[ValidationResult] = []
     for path, expected_data in expected:
         if not path.exists():
@@ -231,7 +233,7 @@ class Match:
 
 
 def match_components(root: Path, query: str) -> list[Match]:
-    index = load_json(root.resolve() / INDEX_FILE)
+    index = load_json(root.resolve() / ESC_AI_DIR / INDEX_FILE)
     query_tokens = _tokens(query)
     matches: list[Match] = []
     for component in index["components"]:

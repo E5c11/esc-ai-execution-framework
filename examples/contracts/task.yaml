@@ -7,7 +7,7 @@ task:
   status: ready
 scope:
   components: [content]
-  paths: [esc-index.json, content/esc-index.json]
+  paths: [.esc-ai/esc-index.json, .esc-ai/components/content/esc-index.json]
 execution:
   workspace: workspace-ampm-readonly
   adapter: opencode-local
@@ -16,5 +16,5 @@ completion_conditions:
   - The content component is ranked first.
   - No repository files are modified.
 references:
-  - esc-index.json
+  - .esc-ai/esc-index.json
 

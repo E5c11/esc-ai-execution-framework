@@ -5,6 +5,9 @@ import unittest
 from esc_exec.contracts import validate_contract
 from esc_exec.dependencies import analyze_impact, generate_dependency_graph, validate_dependency_graph
 from esc_exec.indexing import generate_indexes
+from esc_exec.manifests import (
+    component_manifest_path, component_manifest_relative_path, repository_manifest_path,
+)
 from esc_exec.model import ManifestState
 from esc_exec.task_context import build_verification_plan
 from esc_exec.yaml_io import load_yaml
@@ -16,15 +19,24 @@ class DependencyTests(unittest.TestCase):
         self.temporary = TemporaryDirectory()
         self.root = Path(self.temporary.name)
         components = [("a", []), ("b", ["a"]), ("c", ["b"]), ("d", ["a"])]
-        write_yaml(self.root / "esc-execution.yaml", {
+        write_yaml(repository_manifest_path(self.root), {
             "schema_version": 1,
             "repository": {"id": "repo", "type": "gradle-multi-project", "purpose": "test"},
-            "components": [{"id": component, "manifest": f"{component}/esc-component.yaml"} for component, _ in components],
+            "components": [
+                {"id": component, "manifest": component_manifest_relative_path(component)}
+                for component, _ in components
+            ],
         })
         for component, dependencies in components:
+            # The component's real source directory (root/<component>/) is
+            # deliberately distinct from where its manifest bundle is stored
+            # (.esc-ai/components/<component>/) -- this is what makes this fixture a
+            # real regression test for the build_path resolution fix in
+            # esc_exec.dependencies: if build_path were still resolved relative to
+            # manifest_path.parent, it would never find build.gradle.kts here.
             directory = self.root / component
             directory.mkdir()
-            write_yaml(directory / "esc-component.yaml", {
+            write_yaml(component_manifest_path(self.root, component), {
                 "schema_version": 1,
                 "component": {"id": component, "type": "gradle-module", "path": component, "purpose": component},
                 "build": {"system": "gradle", "project": f":{component}"},
@@ -55,11 +67,11 @@ class DependencyTests(unittest.TestCase):
 
     def test_impact_consumers_populate_progressive_gate(self):
         for component in ("a", "b", "c", "d"):
-            manifest_path = self.root / component / "esc-component.yaml"
+            manifest_path = component_manifest_path(self.root, component)
             manifest = load_yaml(manifest_path)
             manifest["paths"]["verification_profile"] = "esc-verification-profile.yaml"
             write_yaml(manifest_path, manifest)
-            write_yaml(self.root / component / "esc-verification-profile.yaml", {
+            write_yaml(manifest_path.parent / "esc-verification-profile.yaml", {
                 "schema_version": 1,
                 "profile": {"id": f"{component}-verification", "component": component},
                 "gates": {

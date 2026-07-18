@@ -6,7 +6,7 @@ from typing import Any
 from esc_exec.checkpoints import TASK_ID
 from esc_exec.indexing import INDEX_FILE, Match, match_components
 from esc_exec.json_io import load_json
-from esc_exec.manifests import COMPONENT_MANIFEST, REPOSITORY_MANIFEST
+from esc_exec.manifests import ESC_AI_DIR
 from esc_exec.registry import resolve_route
 from esc_exec.yaml_io import load_yaml, write_yaml
 
@@ -53,7 +53,7 @@ def planning_questions(repository_matches: dict[str, list[Match]]) -> list[dict[
 
 
 def _load_index(repository: Path) -> dict[str, Any]:
-    return load_json(repository / INDEX_FILE)
+    return load_json(repository / ESC_AI_DIR / INDEX_FILE)
 
 
 def _validate_components(repository: Path, components: list[str]) -> None:

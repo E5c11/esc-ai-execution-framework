@@ -3,7 +3,10 @@ from tempfile import TemporaryDirectory
 import json
 import unittest
 
-from esc_exec.manifests import generate_gradle_manifests, validate_repository
+from esc_exec.manifests import (
+    component_manifest_path, generate_gradle_manifests, repository_manifest_path,
+    validate_repository,
+)
 from esc_exec.model import ManifestState
 from esc_exec.registry import RENAMED_FRAMEWORK_IDS, add_route
 from esc_exec.yaml_io import load_yaml, write_yaml
@@ -27,10 +30,10 @@ class ManifestTests(unittest.TestCase):
     def test_generation_discovers_nested_gradle_components(self):
         generated = generate_gradle_manifests(self.root)
         self.assertEqual(3, len(generated))
-        repository = load_yaml(self.root / "esc-execution.yaml")
+        repository = load_yaml(repository_manifest_path(self.root))
         self.assertEqual("sample", repository["repository"]["id"])
         self.assertEqual(
-            ["core/api/esc-component.yaml", "feature/esc-component.yaml"],
+            [".esc-ai/components/core-api/esc-component.yaml", ".esc-ai/components/feature/esc-component.yaml"],
             [item["manifest"] for item in repository["components"]],
         )
 
@@ -41,7 +44,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_regeneration_preserves_human_purpose(self):
         generate_gradle_manifests(self.root)
-        manifest_path = self.root / "feature/esc-component.yaml"
+        manifest_path = component_manifest_path(self.root, "feature")
         manifest = load_yaml(manifest_path)
         manifest["component"]["purpose"] = "Owns the sample feature."
         write_yaml(manifest_path, manifest)
@@ -50,7 +53,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_detects_undeclared_component_as_stale(self):
         generate_gradle_manifests(self.root)
-        repository_path = self.root / "esc-execution.yaml"
+        repository_path = repository_manifest_path(self.root)
         repository = load_yaml(repository_path)
         repository["components"] = repository["components"][:1]
         write_yaml(repository_path, repository)
@@ -59,7 +62,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_renamed_framework_reference_is_stale(self):
         generate_gradle_manifests(self.root)
-        repository_path = self.root / "esc-execution.yaml"
+        repository_path = repository_manifest_path(self.root)
         repository = load_yaml(repository_path)
         old_id = next(iter(RENAMED_FRAMEWORK_IDS))
         repository["frameworks"] = {old_id: "1.0"}
@@ -78,7 +81,7 @@ class ManifestTests(unittest.TestCase):
             "framework": {"id": "esc-ai-execution-framework", "major_version": 1},
         })
         add_route(registry, "frameworks", "esc-ai-execution-framework", framework_dir)
-        repository_path = self.root / "esc-execution.yaml"
+        repository_path = repository_manifest_path(self.root)
         repository = load_yaml(repository_path)
         repository["frameworks"] = {"esc-ai-execution-framework": "1"}
         write_yaml(repository_path, repository)
@@ -96,7 +99,7 @@ class ManifestTests(unittest.TestCase):
             "framework": {"id": "esc-ai-execution-framework", "major_version": 2},
         })
         add_route(registry, "frameworks", "esc-ai-execution-framework", framework_dir)
-        repository_path = self.root / "esc-execution.yaml"
+        repository_path = repository_manifest_path(self.root)
         repository = load_yaml(repository_path)
         repository["frameworks"] = {"esc-ai-execution-framework": "1"}
         write_yaml(repository_path, repository)
@@ -110,7 +113,7 @@ class ManifestTests(unittest.TestCase):
         framework_dir = self.root / "framework-checkout"
         framework_dir.mkdir()
         add_route(registry, "frameworks", "esc-ai-execution-framework", framework_dir)
-        repository_path = self.root / "esc-execution.yaml"
+        repository_path = repository_manifest_path(self.root)
         repository = load_yaml(repository_path)
         repository["frameworks"] = {"esc-ai-execution-framework": "1"}
         write_yaml(repository_path, repository)
@@ -120,7 +123,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_valid_architecture_selector_is_accepted(self):
         generate_gradle_manifests(self.root)
-        repository_path = self.root / "esc-execution.yaml"
+        repository_path = repository_manifest_path(self.root)
         repository = load_yaml(repository_path)
         repository["architecture"] = {"profile_ids": ["ORCH-BE-FEAT"]}
         write_yaml(repository_path, repository)
@@ -129,7 +132,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_invalid_architecture_selector_shape_is_invalid(self):
         generate_gradle_manifests(self.root)
-        repository_path = self.root / "esc-execution.yaml"
+        repository_path = repository_manifest_path(self.root)
         repository = load_yaml(repository_path)
         repository["architecture"] = {"profile_ids": []}
         write_yaml(repository_path, repository)

@@ -27,7 +27,9 @@ agent to the root index, selected component indexes, and their bounded search ro
 ## Component-owned verification profiles
 
 The canonical component profile is `esc-verification-profile.yaml`, declared by
-`paths.verification_profile` in `esc-component.yaml`. Generate a Gradle starting point:
+`paths.verification_profile` in `esc-component.yaml` -- both colocated in that
+component's manifest bundle under `.esc-ai/components/<component-id>/`. Generate a
+Gradle starting point:
 
 ```bash
 esc-exec verification profile generate ampm-backend content

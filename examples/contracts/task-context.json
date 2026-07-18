@@ -6,20 +6,20 @@
     "objective": "Confirm that lesson publishing routes to the content component."
   },
   "routing": {
-    "repository_index": "esc-index.json",
+    "repository_index": ".esc-ai/esc-index.json",
     "components": [
       {
         "id": "content",
         "purpose": "Owns curriculum and lesson content.",
-        "manifest": "content/esc-component.yaml",
-        "index": "content/esc-index.json",
+        "manifest": ".esc-ai/components/content/esc-component.yaml",
+        "index": ".esc-ai/components/content/esc-index.json",
         "search_roots": ["content/src/main", "content/src/test"]
       }
     ]
   },
   "scope": {
-    "paths": ["content/esc-index.json"],
-    "references": ["esc-index.json"],
+    "paths": [".esc-ai/components/content/esc-index.json"],
+    "references": [".esc-ai/esc-index.json"],
     "completion_conditions": ["The content component is ranked first."]
   },
   "bounds": {

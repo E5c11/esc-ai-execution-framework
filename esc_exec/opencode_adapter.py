@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 from esc_exec.contracts import validate_contract
 from esc_exec.instructions import check_extension_namespace_conflict, order_instruction_bundle
 from esc_exec.json_io import write_json
-from esc_exec.manifests import REPOSITORY_MANIFEST
+from esc_exec.manifests import repository_manifest_path
 from esc_exec.model import ManifestState
 from esc_exec.registry import resolve_route
 from esc_exec.task_context import build_task_context
@@ -179,10 +179,10 @@ class OpenCodeAdapter:
         policy_id = policy.get("id")
         bundle["safety_and_operator_policy"] = [f"policy:{policy_id}"] if policy_id else []
 
-        repository_manifest_path = repository / REPOSITORY_MANIFEST
+        manifest_path = repository_manifest_path(repository)
         frameworks = {}
-        if repository_manifest_path.is_file():
-            frameworks = load_yaml(repository_manifest_path).get("frameworks") or {}
+        if manifest_path.is_file():
+            frameworks = load_yaml(manifest_path).get("frameworks") or {}
         execution_framework_id = "esc-ai-execution-framework"
         bundle["execution_framework_core"] = [
             f"{execution_framework_id}:{frameworks[execution_framework_id]}"

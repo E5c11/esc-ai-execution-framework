@@ -8,6 +8,9 @@ from esc_exec.model import ManifestState
 from esc_exec.opencode_adapter import OpenCodeAdapter, OpenCodeError, tools_for_policy
 from esc_exec.registry import add_route
 from esc_exec.indexing import generate_indexes
+from esc_exec.manifests import (
+    component_manifest_path, component_manifest_relative_path, repository_manifest_path,
+)
 from esc_exec.yaml_io import write_yaml
 
 
@@ -39,12 +42,12 @@ class OpenCodeAdapterTests(unittest.TestCase):
     def _repository(root: Path) -> Path:
         repository = root / "repo"
         (repository / "content").mkdir(parents=True)
-        write_yaml(repository / "esc-execution.yaml", {
+        write_yaml(repository_manifest_path(repository), {
             "schema_version": 1,
             "repository": {"id": "ampm-backend", "type": "gradle-multi-project", "purpose": "test"},
-            "components": [{"id": "content", "manifest": "content/esc-component.yaml"}],
+            "components": [{"id": "content", "manifest": component_manifest_relative_path("content")}],
         })
-        write_yaml(repository / "content/esc-component.yaml", {
+        write_yaml(component_manifest_path(repository, "content"), {
             "schema_version": 1,
             "component": {"id": "content", "type": "gradle-module", "path": "content", "purpose": "Owns lesson publishing."},
             "build": {"system": "gradle", "project": ":content"},

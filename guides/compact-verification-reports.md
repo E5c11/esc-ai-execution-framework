@@ -6,7 +6,10 @@ the summary is generated, disposable, and must never replace it.
 
 ## Component-owned profiles
 
-Each component that emits reports owns its profile beside `esc-component.yaml`. Use
+Each component that emits reports owns its profile beside `esc-component.yaml` --
+both live together in that component's manifest bundle at
+`.esc-ai/components/<component-id>/`, flat and keyed by stable component ID rather
+than the component's real (and expected-to-change) source path. Use
 `esc-report-profile.yaml` as the canonical filename and declare it in the component
 manifest so discovery does not require a recursive search:
 

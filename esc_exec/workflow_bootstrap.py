@@ -10,7 +10,7 @@ import yaml
 EXECUTION_FRAMEWORK_ID = "esc-ai-execution-framework"
 ARCHITECTURE_FRAMEWORK_ID = "esc-ai-architecture-framework"
 
-INSTRUCTIONS_PATH = Path("INSTRUCTIONS.md")
+INSTRUCTIONS_PATH = Path(".esc-ai/INSTRUCTIONS.md")
 WORKFLOW_README_PATH = Path(".esc-ai/workflows/README.md")
 WORKFLOW_ACTIVE_README_PATH = Path(".esc-ai/workflows/active/README.md")
 WORKFLOW_ARCHIVE_README_PATH = Path(".esc-ai/workflows/archive/README.md")
@@ -27,9 +27,9 @@ def render_instructions_md(repository_id: str) -> str:
         "engineering principles, patterns, and architecture styles are owned by the "
         "architecture framework. Do not duplicate either framework's content here — "
         "this file is a pointer, not a copy.\n\n"
-        "See [`.esc-ai/workflows/README.md`](.esc-ai/workflows/README.md) for this "
-        "repository's own workflow policy, project-specific framework extension "
-        "(if any), and final gates.\n"
+        "See [`workflows/README.md`](workflows/README.md) (both live under `.esc-ai/`) "
+        "for this repository's own workflow policy, project-specific framework "
+        "extension (if any), and final gates.\n"
     )
 
 
@@ -42,9 +42,10 @@ def render_workflow_readme(repository_id: str) -> str:
         f"# Workflows — {repository_id} Policy\n\n"
         "This directory holds this repository's own workflow tracking: active and "
         f"archived task work. It does not duplicate `{EXECUTION_FRAMEWORK_ID}`'s or "
-        f"`{ARCHITECTURE_FRAMEWORK_ID}`'s instructions — see `INSTRUCTIONS.md` for "
-        "those, and the architecture framework's Gap Protocol (in its "
-        "`INSTRUCTIONS.md`) for what to do when framework coverage is missing.\n\n"
+        f"`{ARCHITECTURE_FRAMEWORK_ID}`'s instructions — see [`../INSTRUCTIONS.md`]"
+        "(../INSTRUCTIONS.md) for those, and the architecture framework's Gap "
+        "Protocol (in its `INSTRUCTIONS.md`) for what to do when framework coverage "
+        "is missing.\n\n"
         "**This is a generated starting skeleton, not a finished policy.** Fill in "
         "before treating this repository as fully onboarded:\n\n"
         "- Project-specific framework extension: does this repository have one (e.g. "

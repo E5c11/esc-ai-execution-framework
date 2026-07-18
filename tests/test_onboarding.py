@@ -5,7 +5,7 @@ import unittest
 
 from esc_exec.contracts import validate_contract
 from esc_exec.json_io import write_json
-from esc_exec.manifests import generate_gradle_manifests
+from esc_exec.manifests import component_manifest_path, generate_gradle_manifests
 from esc_exec.model import ManifestState
 from esc_exec.onboarding import analyze_repository, apply_onboarding_answers, import_project_profile
 from esc_exec.registry import add_route
@@ -49,9 +49,9 @@ class OnboardingTests(unittest.TestCase):
         self.assertEqual("sample", proposal["repository"]["id"])
         self.assertEqual("gradle-multi-project", proposal["repository"]["type"])
         actions = {entry["path"]: entry["action"] for entry in proposal["files"]}
-        self.assertEqual("create", actions["esc-execution.yaml"])
-        self.assertEqual("create", actions["core/api/esc-component.yaml"])
-        self.assertEqual("create", actions["feature/esc-component.yaml"])
+        self.assertEqual("create", actions[".esc-ai/esc-execution.yaml"])
+        self.assertEqual("create", actions[".esc-ai/components/core-api/esc-component.yaml"])
+        self.assertEqual("create", actions[".esc-ai/components/feature/esc-component.yaml"])
         self.assertEqual(
             {"core-api", "feature"},
             {question["component_id"] for question in proposal["semantic_questions"]},
@@ -68,16 +68,16 @@ class OnboardingTests(unittest.TestCase):
 
     def test_preserve_after_generation_and_authored_purpose(self):
         generate_gradle_manifests(self.root)
-        manifest_path = self.root / "feature/esc-component.yaml"
+        manifest_path = component_manifest_path(self.root, "feature")
         manifest = load_yaml(manifest_path)
         manifest["component"]["purpose"] = "Owns the sample feature."
         write_yaml(manifest_path, manifest)
 
         proposal = analyze_repository(self.root)
         actions = {entry["path"]: entry["action"] for entry in proposal["files"]}
-        self.assertEqual("preserve", actions["esc-execution.yaml"])
-        self.assertEqual("preserve", actions["feature/esc-component.yaml"])
-        self.assertEqual("preserve", actions["core/api/esc-component.yaml"])
+        self.assertEqual("preserve", actions[".esc-ai/esc-execution.yaml"])
+        self.assertEqual("preserve", actions[".esc-ai/components/feature/esc-component.yaml"])
+        self.assertEqual("preserve", actions[".esc-ai/components/core-api/esc-component.yaml"])
         question_components = {question["component_id"] for question in proposal["semantic_questions"]}
         self.assertNotIn("feature", question_components)
         self.assertIn("core-api", question_components)
@@ -92,8 +92,8 @@ class OnboardingTests(unittest.TestCase):
         )
         proposal = analyze_repository(self.root)
         actions = {entry["path"]: entry["action"] for entry in proposal["files"]}
-        self.assertEqual("update", actions["esc-execution.yaml"])
-        self.assertEqual("create", actions["extra/esc-component.yaml"])
+        self.assertEqual("update", actions[".esc-ai/esc-execution.yaml"])
+        self.assertEqual("create", actions[".esc-ai/components/extra/esc-component.yaml"])
 
     def test_detects_removed_component_as_deprecate(self):
         generate_gradle_manifests(self.root)
@@ -102,7 +102,7 @@ class OnboardingTests(unittest.TestCase):
         )
         proposal = analyze_repository(self.root)
         deprecated = [entry for entry in proposal["files"] if entry["action"] == "deprecate"]
-        self.assertEqual(["feature/esc-component.yaml"], [entry["path"] for entry in deprecated])
+        self.assertEqual([".esc-ai/components/feature/esc-component.yaml"], [entry["path"] for entry in deprecated])
 
     def test_input_digest_is_stable_and_changes_with_input(self):
         first = analyze_repository(self.root)["input_digest"]
@@ -118,7 +118,8 @@ class OnboardingTests(unittest.TestCase):
         self.assertNotEqual(first, third)
 
     def test_existing_adoption_signals_detected(self):
-        (self.root / "INSTRUCTIONS.md").write_text("", encoding="utf-8")
+        (self.root / ".esc-ai").mkdir(parents=True)
+        (self.root / ".esc-ai/INSTRUCTIONS.md").write_text("", encoding="utf-8")
         (self.root / ".esc-ai/workflows").mkdir(parents=True)
         (self.root / "context").mkdir()
         (self.root / "context/project-profile.yaml").write_text("", encoding="utf-8")
@@ -181,15 +182,15 @@ class OnboardingTests(unittest.TestCase):
             "feature": {"purpose": "Owns the feature."},
         }
         result = apply_onboarding_answers(self.root, proposal, answers)
-        self.assertIn("esc-execution.yaml", result["written"])
-        manifest = load_yaml(self.root / "core/api/esc-component.yaml")
+        self.assertIn(".esc-ai/esc-execution.yaml", result["written"])
+        manifest = load_yaml(component_manifest_path(self.root, "core-api"))
         self.assertEqual("Owns the core API.", manifest["component"]["purpose"])
 
         # Re-analysis must not lose the authored purpose.
         second_proposal = analyze_repository(self.root)
         self.assertFalse(any(q["component_id"] == "core-api" for q in second_proposal["semantic_questions"]))
         actions = {entry["path"]: entry["action"] for entry in second_proposal["files"]}
-        self.assertEqual("preserve", actions["core/api/esc-component.yaml"])
+        self.assertEqual("preserve", actions[".esc-ai/components/core-api/esc-component.yaml"])
 
     def test_apply_answers_rejects_stale_proposal(self):
         proposal = analyze_repository(self.root)
@@ -212,7 +213,7 @@ class OnboardingTests(unittest.TestCase):
             "feature": {"purpose": "Owns the feature.", "frameworks": {"network": "unmatched-lib"}},
         }
         result = apply_onboarding_answers(self.root, proposal, answers, registry)
-        manifest = load_yaml(self.root / "core/api/esc-component.yaml")
+        manifest = load_yaml(component_manifest_path(self.root, "core-api"))
         self.assertEqual(["PLAT-MOB-HTTP"], manifest["architecture"]["profile_ids"])
         self.assertIn("feature", result["empty_profile_id_suggestions"])
         self.assertNotIn("core-api", result["empty_profile_id_suggestions"])
@@ -236,14 +237,15 @@ class OnboardingTests(unittest.TestCase):
         proposal = analyze_repository(self.root)
         answers = {"core-api": {"purpose": "Owns it."}, "feature": {"purpose": "Owns the feature."}}
         result = apply_onboarding_answers(self.root, proposal, answers)
-        self.assertTrue((self.root / "core/api/esc-verification-profile.yaml").is_file())
-        self.assertTrue((self.root / "core/api/esc-architecture-profile.yaml").is_file())
-        self.assertIn("core/api/esc-verification-profile.yaml", result["written"])
-        self.assertIn("core/api/esc-architecture-profile.yaml", result["written"])
+        component_dir = component_manifest_path(self.root, "core-api").parent
+        self.assertTrue((component_dir / "esc-verification-profile.yaml").is_file())
+        self.assertTrue((component_dir / "esc-architecture-profile.yaml").is_file())
+        self.assertIn(".esc-ai/components/core-api/esc-verification-profile.yaml", result["written"])
+        self.assertIn(".esc-ai/components/core-api/esc-architecture-profile.yaml", result["written"])
 
         # Re-applying must not blow up on already-existing profiles.
         second = apply_onboarding_answers(self.root, proposal, answers)
-        self.assertNotIn("core/api/esc-verification-profile.yaml", second["written"])
+        self.assertNotIn(".esc-ai/components/core-api/esc-verification-profile.yaml", second["written"])
 
     def test_apply_answers_leaves_indexes_and_dependency_graph_valid(self):
         # Regression: generate_gradle_verification_profile/generate_architecture_profile
@@ -261,22 +263,22 @@ class OnboardingTests(unittest.TestCase):
 
         for result in validate_indexes(self.root):
             self.assertEqual(ManifestState.VALID, result.state, result.messages)
-        self.assertTrue((self.root / "esc-dependencies.json").is_file())
+        self.assertTrue((self.root / ".esc-ai/esc-dependencies.json").is_file())
         self.assertEqual(ManifestState.VALID, validate_dependency_graph(self.root).state)
 
     def test_apply_answers_bootstraps_workflow_inheritance(self):
         proposal = analyze_repository(self.root)
         answers = {"core-api": {"purpose": "Owns it."}, "feature": {"purpose": "Owns the feature."}}
         result = apply_onboarding_answers(self.root, proposal, answers)
-        self.assertIn("INSTRUCTIONS.md", result["workflow_inheritance"]["created"])
+        self.assertIn(".esc-ai/INSTRUCTIONS.md", result["workflow_inheritance"]["created"])
         self.assertIn(".esc-ai/workflows/README.md", result["workflow_inheritance"]["created"])
-        self.assertTrue((self.root / "INSTRUCTIONS.md").is_file())
+        self.assertTrue((self.root / ".esc-ai/INSTRUCTIONS.md").is_file())
         self.assertTrue((self.root / ".esc-ai/workflows/README.md").is_file())
 
         # Re-applying must report the files as existing, not recreate/overwrite them.
         second = apply_onboarding_answers(self.root, proposal, answers)
         self.assertEqual([], second["workflow_inheritance"]["created"])
-        self.assertIn("INSTRUCTIONS.md", second["workflow_inheritance"]["existing"])
+        self.assertIn(".esc-ai/INSTRUCTIONS.md", second["workflow_inheritance"]["existing"])
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ from typing import Any
 from esc_exec.architecture_lookup import load_architecture_index, resolve_architecture_docs, stub_documents
 from esc_exec.indexing import INDEX_FILE, validate_indexes
 from esc_exec.json_io import load_json, write_json
-from esc_exec.manifests import REPOSITORY_MANIFEST
+from esc_exec.manifests import ESC_AI_DIR, repository_manifest_path
 from esc_exec.registry import resolve_route
 from esc_exec.yaml_io import load_yaml, write_yaml
 from esc_exec.model import ManifestState
@@ -42,14 +42,14 @@ def build_task_context(
     invalid_indexes = [result for result in index_results if result.state != ManifestState.VALID]
     if invalid_indexes:
         raise ValueError("repository indexes are missing, stale, or invalid; regenerate and validate them")
-    root_index = load_json(repository / INDEX_FILE)
+    root_index = load_json(repository / ESC_AI_DIR / INDEX_FILE)
     if root_index["repository"]["id"] != task["repository"]:
         raise ValueError("task repository does not match repository index")
     indexed = {item["id"]: item for item in root_index["components"]}
     missing = sorted(set(components) - set(indexed))
     if missing:
         raise ValueError(f"task components are not in the repository index: {', '.join(missing)}")
-    repository_profile_ids = _profile_ids(load_yaml(repository / REPOSITORY_MANIFEST))
+    repository_profile_ids = _profile_ids(load_yaml(repository_manifest_path(repository)))
     architecture_index: dict[str, dict[str, Any]] | None = None
     selected = []
     for component_id in components:
@@ -91,7 +91,7 @@ def build_task_context(
         "schema_version": 1,
         "task": {"id": task["id"], "repository": task["repository"], "objective": task["objective"]},
         "routing": {
-            "repository_index": INDEX_FILE,
+            "repository_index": f"{ESC_AI_DIR}/{INDEX_FILE}",
             "input_digest": root_index.get("input_digest", ""),
             "components": selected,
         },
@@ -113,7 +113,7 @@ def build_task_context(
 
 
 def generate_gradle_verification_profile(repository: Path, component_id: str) -> Path:
-    root_index = load_json(repository / INDEX_FILE)
+    root_index = load_json(repository / ESC_AI_DIR / INDEX_FILE)
     component = next((item for item in root_index["components"] if item["id"] == component_id), None)
     if not component:
         raise ValueError(f"component is not in repository index: {component_id}")
@@ -146,7 +146,7 @@ def generate_gradle_verification_profile(repository: Path, component_id: str) ->
 def build_verification_plan(repository: Path, task_path: Path, output: Path) -> dict[str, Any]:
     task_document = load_yaml(task_path)
     task = task_document["task"]
-    root_index = load_json(repository / INDEX_FILE)
+    root_index = load_json(repository / ESC_AI_DIR / INDEX_FILE)
     indexed = {item["id"]: item for item in root_index["components"]}
     profiles = []
     gate_checks: dict[str, list[dict[str, Any]]] = {gate: [] for gate in GATES}

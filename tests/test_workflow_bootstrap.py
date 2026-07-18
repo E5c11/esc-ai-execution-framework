@@ -22,7 +22,7 @@ class WorkflowBootstrapTests(unittest.TestCase):
         result = bootstrap_workflow_inheritance(self.root, self.manifest)
         self.assertEqual(
             {
-                "INSTRUCTIONS.md",
+                ".esc-ai/INSTRUCTIONS.md",
                 ".esc-ai/workflows/README.md",
                 ".esc-ai/workflows/active/README.md",
                 ".esc-ai/workflows/archive/README.md",
@@ -31,10 +31,10 @@ class WorkflowBootstrapTests(unittest.TestCase):
         )
         self.assertEqual([], result["existing"])
         self.assertEqual([], result["advisory_warnings"])
-        self.assertTrue((self.root / "INSTRUCTIONS.md").is_file())
+        self.assertTrue((self.root / ".esc-ai/INSTRUCTIONS.md").is_file())
         self.assertTrue((self.root / ".esc-ai/workflows/README.md").is_file())
-        self.assertIn("esc-ai-execution-framework", (self.root / "INSTRUCTIONS.md").read_text())
-        self.assertIn("esc-ai-architecture-framework", (self.root / "INSTRUCTIONS.md").read_text())
+        self.assertIn("esc-ai-execution-framework", (self.root / ".esc-ai/INSTRUCTIONS.md").read_text())
+        self.assertIn("esc-ai-architecture-framework", (self.root / ".esc-ai/INSTRUCTIONS.md").read_text())
 
     def test_generated_workflow_readme_frontmatter_is_valid(self):
         bootstrap_workflow_inheritance(self.root, self.manifest)
@@ -44,7 +44,7 @@ class WorkflowBootstrapTests(unittest.TestCase):
 
     def test_rerunning_bootstrap_is_a_true_no_op(self):
         bootstrap_workflow_inheritance(self.root, self.manifest)
-        instructions_path = self.root / "INSTRUCTIONS.md"
+        instructions_path = self.root / ".esc-ai/INSTRUCTIONS.md"
         original = instructions_path.read_text()
         original_mtime = instructions_path.stat().st_mtime_ns
 
@@ -53,7 +53,7 @@ class WorkflowBootstrapTests(unittest.TestCase):
         self.assertEqual([], result["created"])
         self.assertEqual(
             {
-                "INSTRUCTIONS.md",
+                ".esc-ai/INSTRUCTIONS.md",
                 ".esc-ai/workflows/README.md",
                 ".esc-ai/workflows/active/README.md",
                 ".esc-ai/workflows/archive/README.md",

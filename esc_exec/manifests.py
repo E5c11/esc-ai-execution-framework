@@ -13,6 +13,46 @@ from esc_exec.yaml_io import load_yaml, write_yaml
 REPOSITORY_MANIFEST = "esc-execution.yaml"
 COMPONENT_MANIFEST = "esc-component.yaml"
 
+# Every escape-ai-owned generated/managed file lives under this repository-local
+# directory, keyed by stable component ID rather than mirroring a component's real
+# (expected-to-change) filesystem path. See the plan's "Repository-local Escape AI
+# directory" section: escape-ai always resolves a repository through the
+# machine-local registry by ID first, then reads a conventional relative path under
+# an already-known root -- it never discovers a repository by scanning for these
+# files, so nothing requires them to sit at repository/component root.
+ESC_AI_DIR = ".esc-ai"
+COMPONENTS_DIR = "components"
+
+
+def repository_manifest_path(root: Path) -> Path:
+    """Absolute path to the repository manifest's storage location."""
+    return root / ESC_AI_DIR / REPOSITORY_MANIFEST
+
+
+def repository_manifest_relative_path() -> str:
+    """The repository-root-relative path to the repository manifest."""
+    return f"{ESC_AI_DIR}/{REPOSITORY_MANIFEST}"
+
+
+def component_manifest_dir(root: Path, component_id: str) -> Path:
+    """
+    The manifest bundle directory for a component, flat and keyed by stable
+    component ID -- not mirroring `component["path"]` (the component's real,
+    expected-to-change source location), which stays `repository_root /
+    component["path"]` and is completely unaffected by where the manifest bundle
+    itself is stored.
+    """
+    return root / ESC_AI_DIR / COMPONENTS_DIR / component_id
+
+
+def component_manifest_path(root: Path, component_id: str) -> Path:
+    return component_manifest_dir(root, component_id) / COMPONENT_MANIFEST
+
+
+def component_manifest_relative_path(component_id: str) -> str:
+    """The repository-root-relative path stored in components[].manifest."""
+    return f"{ESC_AI_DIR}/{COMPONENTS_DIR}/{component_id}/{COMPONENT_MANIFEST}"
+
 
 def _merge_generated(existing: dict[str, Any], generated: dict[str, Any]) -> dict[str, Any]:
     result = dict(existing)
@@ -39,7 +79,7 @@ def _architecture_selector_errors(data: dict[str, Any]) -> list[str]:
 def generate_gradle_manifests(root: Path) -> list[Path]:
     root = root.resolve()
     repository_id, components = detect_gradle_repository(root)
-    repository_path = root / REPOSITORY_MANIFEST
+    repository_path = repository_manifest_path(root)
     existing_repository = load_yaml(repository_path) if repository_path.exists() else {}
     generated_repository = {
         "schema_version": 1,
@@ -48,7 +88,7 @@ def generate_gradle_manifests(root: Path) -> list[Path]:
             "type": "gradle-multi-project",
         },
         "components": [
-            {"id": component_id, "manifest": str(relative / COMPONENT_MANIFEST)}
+            {"id": component_id, "manifest": component_manifest_relative_path(component_id)}
             for component_id, relative in components
         ],
         "generation": {
@@ -60,7 +100,7 @@ def generate_gradle_manifests(root: Path) -> list[Path]:
     written = [repository_path]
 
     for component_id, relative in components:
-        manifest_path = root / relative / COMPONENT_MANIFEST
+        manifest_path = component_manifest_path(root, component_id)
         existing = load_yaml(manifest_path) if manifest_path.exists() else {}
         generated = {
             "schema_version": 1,
@@ -86,7 +126,7 @@ def generate_gradle_manifests(root: Path) -> list[Path]:
 
 def validate_repository(root: Path, registry_path: Path | None = None) -> list[ValidationResult]:
     root = root.resolve()
-    repository_path = root / REPOSITORY_MANIFEST
+    repository_path = repository_manifest_path(root)
     if not repository_path.exists():
         return [ValidationResult(
             ManifestState.INCOMPLETE,
@@ -149,7 +189,7 @@ def validate_repository(root: Path, registry_path: Path | None = None) -> list[V
 
     try:
         _, detected = detect_gradle_repository(root)
-        detected_paths = {str(relative / COMPONENT_MANIFEST) for _, relative in detected}
+        detected_paths = {component_manifest_relative_path(component_id) for component_id, _ in detected}
         missing = sorted(detected_paths - declared_paths)
         if missing:
             results[0] = ValidationResult(

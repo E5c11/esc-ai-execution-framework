@@ -43,9 +43,13 @@ esc-exec manifest generate /path/to/repository
 ```
 
 For Gradle repositories the generator reads `settings.gradle.kts` or
-`settings.gradle`, writes the root `esc-execution.yaml`, and writes
-`esc-component.yaml` beside each declared Gradle component. It detects existing source,
-test, resource, migration, documentation, and build paths.
+`settings.gradle`, writes the repository manifest to
+`.esc-ai/esc-execution.yaml`, and writes each declared Gradle component's manifest to
+`.esc-ai/components/<component-id>/esc-component.yaml` -- flat and keyed by the
+component's stable ID, not mirroring its real source path. The component's real
+source/test/resource/migration/documentation/build paths are untouched and still
+resolve relative to `component.path` under the repository root, not relative to the
+manifest bundle's own storage location.
 
 Regeneration updates fields the adapter can derive and preserves human-authored fields
 such as `component.purpose` and `component.ownership`.
@@ -90,12 +94,16 @@ An invalid result takes precedence when multiple manifests have different states
 Normal discovery is deterministic:
 
 1. Resolve the repository ID through the machine-local registry.
-2. Load `<repository>/esc-execution.yaml`.
-3. Load only the component manifests explicitly declared by the repository manifest.
+2. Load `<repository>/.esc-ai/esc-execution.yaml`.
+3. Load only the component manifests explicitly declared by the repository manifest
+   (each at `<repository>/.esc-ai/components/<component-id>/esc-component.yaml`).
 4. Match task routing against those declared components.
 
 Do not recursively search a machine for repositories or a repository for undeclared
-component manifests. The generator may inspect the build system to detect missing or
+component manifests. escape-ai never discovers a repository by scanning a directory
+tree for these files -- it always resolves a repository through the machine-local
+registry by ID first, then reads this conventional relative path under the
+already-known root. The generator may inspect the build system to detect missing or
 new components and report the repository manifest as `STALE`.
 
 ## Committed and transient data
@@ -114,7 +122,8 @@ esc-exec index validate ampm-backend
 esc-exec index match ampm-backend "lesson publishing"
 ```
 
-The root `esc-index.json` is the first routing read. It identifies matching components,
-their component-index paths, and their search roots. A component `esc-index.json`
-contains package areas, key entry points, and role counts. Neither index embeds source
-contents or has a parallel Markdown form.
+The root `.esc-ai/esc-index.json` is the first routing read. It identifies matching
+components, their component-index paths, and their search roots. A component
+`esc-index.json` (colocated with that component's manifest bundle under
+`.esc-ai/components/<component-id>/`) contains package areas, key entry points, and
+role counts. Neither index embeds source contents or has a parallel Markdown form.
