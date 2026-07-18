@@ -1,5 +1,5 @@
 # ESC AI Execution Framework — Active Roadmap
-**Status:** Initial capability sequence complete
+**Status:** Capability 12 in progress (Escape AI framework composition)
 **Goal:** Establish portable execution contracts, prove them through OpenCode, and then
 build the efficiency capabilities one vertical slice at a time.
 
@@ -42,6 +42,7 @@ build the efficiency capabilities one vertical slice at a time.
 | 9 | [Durable checkpoints](../archive/durable-checkpoints.md) | Another agent/person can resume incomplete work without reconstructing history | Complete |
 | 10 | [Dependency graph and impact analysis](../archive/dependency-impact-analysis.md) | Generated consumer relationships drive appropriate verification scope | Complete |
 | 11 | [Execution-efficiency measurement](../archive/execution-efficiency-measurement.md) | Evidence for token, tool-call, elapsed-time, and rework improvements | Complete — provider cohort pending |
+| 12 | [Escape AI framework composition](phase-1-framework-composition.md) | Task context resolves architecture documents without hard-coded checkout paths | In progress |
 
 ## Capability 1 — Initial Scope
 
