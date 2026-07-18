@@ -33,7 +33,7 @@ esc-exec checkpoint create ampm-backend \
   --decision "Keep the existing public API." \
   --remaining "Move the adapter behind the content boundary." \
   --blocker "Needs confirmation of portal ownership." \
-  --artifact .execution/runs/run-123/architecture.json
+  --artifact .esc-ai/runs/run-123/architecture.json
 ```
 
 Creation never overwrites an existing checkpoint. Review and commit the generated
@@ -67,7 +67,9 @@ The orchestrator writes a transient `checkpoint.yaml` candidate when a run fails
 exposes it at `GET /runs/{id}/checkpoint`. This preserves the blocker even if the
 runtime failed before producing its normal artifacts.
 
-Candidates are not written into or committed to the consuming repository
+The candidate lands at `.esc-ai/runs/<run-id>/checkpoint.yaml` inside the target
+repository's working tree (gitignored) rather than an orchestrator-external
+directory — colocated with the repository it concerns, but not committed
 automatically. Review the candidate, promote meaningful state with `checkpoint create`
 or `checkpoint update`, and commit it. This keeps transient infrastructure failures
 from polluting project history while making genuine incomplete work resumable.

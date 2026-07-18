@@ -18,13 +18,14 @@ esc-exec opencode execute \
   examples/contracts/workspace.yaml \
   examples/contracts/adapter.yaml \
   examples/contracts/policy.yaml \
-  --server http://127.0.0.1:4097 \
-  --output /tmp/esc-opencode-runs
+  --server http://127.0.0.1:4097
 ```
 
 The adapter resolves the task repository through the local registry, matches its root
 index, creates or resumes a session, and writes portable `run.json`, `events.jsonl`,
-`artifact.json`, and `summary.json` outputs.
+`artifact.json`, and `summary.json` outputs to `<repository>/.esc-ai/runs/<run-id>/` —
+resolved from the task's `repository` field via the registry, not a location the caller
+chooses.
 
 Read-only policy disables `bash`, `edit`, `write`, `patch`, `webfetch`, tasks, and todo
 tools while allowing `read`, `list`, `glob`, and `grep`.

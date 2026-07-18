@@ -23,11 +23,14 @@ artifacts an obvious, repository-local home instead of a process-relative defaul
       describe the thing that deliverable changes.
 - [ ] Add `ecosystems:` to `schemas/route-registry.schema.yaml` and `registry.py`,
       validated so every member ID is itself a registered repository.
-- [ ] Resolve `.esc-ai/runs/<run-id>/` per task inside `OpenCodeAdapter.execute`
-      instead of a single caller-supplied `output_root`. This also changes the
-      `Runtime` protocol/`Scheduler` in `esc-ai-orchestrator` (the failure-checkpoint
-      candidate path currently reuses the same orchestrator-relative `output_root`)
-      and the "Runtime failure candidates" section of `guides/durable-checkpoints.md`.
+- [x] Resolve `.esc-ai/runs/<run-id>/` per task inside `OpenCodeAdapter.execute`,
+      which now derives `run_dir` from the resolved repository instead of taking a
+      caller-supplied `output_root` (removed from `execute()`, the CLI's `opencode
+      execute --output` flag, and both test call sites). `.esc-ai/runs/` added to
+      `.gitignore` (kept alongside `.execution/`, which other guides still use as an
+      example scratch path for unrelated commands). Follow-up in
+      `esc-ai-orchestrator`'s own tracking doc changes the `Runtime` protocol/
+      `Scheduler` there to match.
 - [ ] Define a versioned framework descriptor
       (`schemas/framework-descriptor.schema.yaml` + `esc-framework.yaml` at this
       repo's and the architecture framework's root) and compatible-major-version

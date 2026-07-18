@@ -57,7 +57,7 @@ class OpenCodeAdapter:
     def __init__(self, client: OpenCodeClient, registry_path: Path):
         self.client, self.registry_path = client, registry_path
 
-    def execute(self, task_path: Path, workspace_path: Path, adapter_path: Path, policy_path: Path, output_root: Path, session_id: str | None = None) -> Path:
+    def execute(self, task_path: Path, workspace_path: Path, adapter_path: Path, policy_path: Path, session_id: str | None = None) -> Path:
         for kind, path in (("task", task_path), ("workspace", workspace_path), ("adapter", adapter_path), ("policy", policy_path)):
             result = validate_contract(kind, path)
             if result.state != ManifestState.VALID: raise ValueError(f"Invalid {kind}: {'; '.join(result.messages)}")
@@ -69,7 +69,7 @@ class OpenCodeAdapter:
         repository = resolve_route(self.registry_path, "repositories", task["repository"])
         self.client.health(repository)
         run_id, created_at = f"run-{uuid.uuid4().hex}", _now()
-        run_dir = output_root / run_id
+        run_dir = repository / ".esc-ai" / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=False)
         context = build_task_context(repository, task_path, run_dir / "task-context.json")
         if session_id is None: session_id = self.client.create_session(repository, task["title"])["id"]

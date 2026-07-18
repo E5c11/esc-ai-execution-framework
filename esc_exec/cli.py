@@ -7,7 +7,7 @@ from esc_exec.contracts import CONTRACT_FORMATS, validate_contract, validate_con
 from esc_exec.indexing import generate_indexes, match_components, validate_indexes
 from esc_exec.manifests import generate_gradle_manifests, overall_exit_code, validate_repository
 from esc_exec.opencode_adapter import OpenCodeAdapter, OpenCodeClient, OpenCodeError
-from esc_exec.registry import add_route, default_registry_path, read_registry, resolve_route, validate_registry
+from esc_exec.registry import add_ecosystem, add_route, default_registry_path, read_registry, resolve_route, validate_registry
 from esc_exec.reporting import summarize_junit
 from esc_exec.task_context import build_task_context, build_verification_plan, generate_gradle_verification_profile
 from esc_exec.architecture import check_architecture, generate_architecture_profile
@@ -42,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
     route_resolve.add_argument("id")
     route_commands.add_parser("list")
     route_commands.add_parser("validate")
+    route_ecosystem = route_commands.add_parser("ecosystem")
+    route_ecosystem_commands = route_ecosystem.add_subparsers(dest="ecosystem_command", required=True)
+    route_ecosystem_add = route_ecosystem_commands.add_parser("add")
+    route_ecosystem_add.add_argument("name")
+    route_ecosystem_add.add_argument("repositories", nargs="+")
 
     manifest = subcommands.add_parser("manifest", help="Generate and validate repository/component manifests")
     manifest_commands = manifest.add_subparsers(dest="manifest_command", required=True)
@@ -161,7 +166,6 @@ def build_parser() -> argparse.ArgumentParser:
     opencode_execute.add_argument("adapter", type=Path)
     opencode_execute.add_argument("policy", type=Path)
     opencode_execute.add_argument("--server", default="http://127.0.0.1:4097")
-    opencode_execute.add_argument("--output", type=Path, default=Path(".execution/runs"))
     opencode_execute.add_argument("--session")
     opencode_fork = opencode_commands.add_parser("fork")
     opencode_fork.add_argument("repository")
@@ -199,6 +203,10 @@ def main(argv: list[str] | None = None) -> int:
             except (KeyError, FileNotFoundError) as exc:
                 print(f"INCOMPLETE {exc.args[0]}")
                 return 2
+        if args.route_command == "ecosystem":
+            add_ecosystem(registry, args.name, args.repositories)
+            print(f"REGISTERED ecosystem `{args.name}` -> {', '.join(args.repositories)}")
+            return 0
         if args.route_command == "list":
             data = read_registry(registry)
             print(f"Registry: {registry}")
@@ -206,6 +214,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{kind}:")
                 for route_id, route in data.get(kind, {}).items():
                     print(f"  {route_id}: {route.get('path')}")
+            ecosystems = data.get("ecosystems", {})
+            if ecosystems:
+                print("ecosystems:")
+                for name, ecosystem in ecosystems.items():
+                    print(f"  {name}: {', '.join(ecosystem.get('repositories', []))}")
             return 0
         result = validate_registry(registry)
         _print_result(result)
@@ -359,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.opencode_command == "fork":
                 print(adapter.fork(args.repository, args.session))
             else:
-                print(adapter.execute(args.task, args.workspace, args.adapter, args.policy, args.output, args.session))
+                print(adapter.execute(args.task, args.workspace, args.adapter, args.policy, args.session))
             return 0
         except (OpenCodeError, ValueError, KeyError, FileNotFoundError) as exc:
             print(f"FAILED     {exc}")

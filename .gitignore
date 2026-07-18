@@ -7,4 +7,5 @@ build/
 *.egg-info/
 .idea/
 .execution/
+.esc-ai/runs/
 

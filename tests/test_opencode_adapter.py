@@ -62,7 +62,7 @@ class OpenCodeAdapterTests(unittest.TestCase):
             client = FakeOpenCodeClient()
             run_dir = OpenCodeAdapter(client, registry).execute(
                 examples / "task.yaml", examples / "workspace.yaml",
-                examples / "adapter.yaml", examples / "policy.yaml", root / "runs",
+                examples / "adapter.yaml", examples / "policy.yaml",
             )
             self.assertEqual(ManifestState.VALID, validate_contract("run", run_dir / "run.json").state)
             self.assertEqual(ManifestState.VALID, validate_contract("event", run_dir / "events.jsonl").state)
@@ -95,9 +95,9 @@ class OpenCodeAdapterTests(unittest.TestCase):
             with self.assertRaises(OpenCodeError):
                 OpenCodeAdapter(FakeErrorClient(), registry).execute(
                     examples / "task.yaml", examples / "workspace.yaml",
-                    examples / "adapter.yaml", examples / "policy.yaml", root / "runs",
+                    examples / "adapter.yaml", examples / "policy.yaml",
                 )
-            run_dir = next((root / "runs").iterdir())
+            run_dir = next((root / "repo" / ".esc-ai" / "runs").iterdir())
             metrics = json.loads((run_dir / "run-metrics.json").read_text())
             self.assertEqual("failed", metrics["run"]["status"])
             self.assertEqual("unavailable", metrics["tokens"]["status"])
