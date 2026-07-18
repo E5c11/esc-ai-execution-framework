@@ -245,6 +245,25 @@ class OnboardingTests(unittest.TestCase):
         second = apply_onboarding_answers(self.root, proposal, answers)
         self.assertNotIn("core/api/esc-verification-profile.yaml", second["written"])
 
+    def test_apply_answers_leaves_indexes_and_dependency_graph_valid(self):
+        # Regression: generate_gradle_verification_profile/generate_architecture_profile
+        # write paths.verification_profile/architecture_profile back into a component's
+        # manifest *after* it's first indexed. If the index isn't regenerated again after
+        # that, it stays hashed against pre-profile-generation bytes and validate_indexes
+        # reports STALE the instant onboarding finishes. esc-dependencies.json must also
+        # actually get generated during apply, not left for a manual follow-up step.
+        proposal = analyze_repository(self.root)
+        answers = {"core-api": {"purpose": "Owns it."}, "feature": {"purpose": "Owns the feature."}}
+        apply_onboarding_answers(self.root, proposal, answers)
+
+        from esc_exec.indexing import validate_indexes
+        from esc_exec.dependencies import validate_dependency_graph
+
+        for result in validate_indexes(self.root):
+            self.assertEqual(ManifestState.VALID, result.state, result.messages)
+        self.assertTrue((self.root / "esc-dependencies.json").is_file())
+        self.assertEqual(ManifestState.VALID, validate_dependency_graph(self.root).state)
+
     def test_apply_answers_bootstraps_workflow_inheritance(self):
         proposal = analyze_repository(self.root)
         answers = {"core-api": {"purpose": "Owns it."}, "feature": {"purpose": "Owns the feature."}}

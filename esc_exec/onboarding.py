@@ -10,6 +10,7 @@ from esc_exec.architecture_lookup import (
     load_architecture_index, load_profile_doc_map, resolve_architecture_docs,
     stub_documents, suggest_profile_ids,
 )
+from esc_exec.dependencies import generate_dependency_graph
 from esc_exec.indexing import generate_indexes
 from esc_exec.manifests import COMPONENT_MANIFEST, REPOSITORY_MANIFEST, generate_gradle_manifests
 from esc_exec.registry import resolve_route
@@ -292,6 +293,12 @@ def apply_onboarding_answers(
 
         write_yaml(manifest_path, manifest)
 
+    # generate_gradle_verification_profile/generate_architecture_profile below both
+    # resolve a component's manifest path through the root index, so it must exist
+    # before they run. They also write back into that same manifest (paths.verification_profile/
+    # architecture_profile), which is why the index gets regenerated *again* after
+    # the loop -- otherwise it stays hashed against the pre-profile-generation bytes
+    # and validate_indexes reports STALE immediately after onboarding.
     generate_indexes(root)
 
     stub_warnings: dict[str, list[str]] = {}
@@ -326,6 +333,13 @@ def apply_onboarding_answers(
         if not architecture_profile_path.is_file():
             generate_architecture_profile(root, component_id)
             written.append(architecture_profile_path)
+
+    # Regenerate now that the profile generators above have finished mutating
+    # manifests, so the index reflects final content instead of going stale the
+    # instant it's written. The dependency graph is never generated during apply
+    # at all otherwise, and only needs to run once, after manifests are final.
+    written.extend(generate_indexes(root))
+    written.append(generate_dependency_graph(root))
 
     repository_manifest = load_yaml(root / REPOSITORY_MANIFEST)
     workflow_inheritance = bootstrap_workflow_inheritance(root, repository_manifest)
