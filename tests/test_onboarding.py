@@ -281,5 +281,50 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn(".esc-ai/INSTRUCTIONS.md", second["workflow_inheritance"]["existing"])
 
 
+class SingleModuleGradleOnboardingTests(unittest.TestCase):
+    """
+    Regression coverage for a repository with no include(...) subprojects at all
+    (e.g. a small published library like ampm-contracts) -- found during the
+    Phase 10 multi-repository pilot to detect zero components and so be
+    permanently unonboardable for dependency/impact tracking.
+    """
+
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / "settings.gradle.kts").write_text(
+            'rootProject.name = "solo"\n', encoding="utf-8",
+        )
+        (self.root / "src/main/kotlin").mkdir(parents=True)
+        (self.root / "build.gradle.kts").write_text("", encoding="utf-8")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_root_project_is_detected_as_sole_component(self):
+        proposal = analyze_repository(self.root)
+        self.assertEqual("solo", proposal["repository"]["id"])
+        self.assertEqual(
+            {"solo"}, {question["component_id"] for question in proposal["semantic_questions"]},
+        )
+
+    def test_apply_and_validate_succeed_for_root_only_repository(self):
+        proposal = analyze_repository(self.root)
+        answers = {"solo": {"purpose": "Owns the solo library."}}
+        result = apply_onboarding_answers(self.root, proposal, answers)
+        manifest = load_yaml(component_manifest_path(self.root, "solo"))
+        self.assertEqual(".", manifest["component"]["path"])
+        self.assertEqual(":", manifest["build"]["project"])
+        self.assertEqual("Owns the solo library.", manifest["component"]["purpose"])
+
+        from esc_exec.indexing import validate_indexes
+        from esc_exec.dependencies import validate_dependency_graph
+
+        for validation in validate_indexes(self.root):
+            self.assertEqual(ManifestState.VALID, validation.state, validation.messages)
+        self.assertEqual(ManifestState.VALID, validate_dependency_graph(self.root).state)
+        self.assertIn(".esc-ai/esc-dependencies.json", result["written"])
+
+
 if __name__ == "__main__":
     unittest.main()

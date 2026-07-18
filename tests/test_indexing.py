@@ -93,5 +93,50 @@ class IndexingTests(unittest.TestCase):
         self.assertNotIn("entry_point_terms", component["routing"])
 
 
+class KmpComponentIndexingTests(unittest.TestCase):
+    """
+    Regression coverage for Kotlin Multiplatform components (src/commonMain/kotlin,
+    src/androidMain/kotlin, ... rather than src/main/kotlin), found to produce empty
+    search_roots/package_areas during the Phase 10 pilot against two real KMP repos.
+    """
+
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / "settings.gradle.kts").write_text(
+            'rootProject.name = "sample"\ninclude(":feature:home")\n', encoding="utf-8",
+        )
+        common = self.root / "feature/home/src/commonMain/kotlin/com/example/home"
+        android = self.root / "feature/home/src/androidMain/kotlin/com/example/home"
+        common.mkdir(parents=True)
+        android.mkdir(parents=True)
+        (common / "HomeViewModel.kt").write_text("", encoding="utf-8")
+        (android / "PlatformHomeBindings.kt").write_text("", encoding="utf-8")
+        (self.root / "feature/home/build.gradle.kts").write_text("", encoding="utf-8")
+        generate_gradle_manifests(self.root)
+        manifest_path = component_manifest_path(self.root, "feature-home")
+        manifest = load_yaml(manifest_path)
+        manifest["component"]["purpose"] = "Owns the home feature."
+        write_yaml(manifest_path, manifest)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_search_roots_include_every_source_set(self):
+        generate_indexes(self.root)
+        import json
+        data = json.loads((self.root / ".esc-ai/components/feature-home/esc-index.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            {"feature/home/src/commonMain/kotlin", "feature/home/src/androidMain/kotlin"},
+            set(data["search_roots"]),
+        )
+
+    def test_package_areas_span_every_source_set(self):
+        generate_indexes(self.root)
+        import json
+        data = json.loads((self.root / ".esc-ai/components/feature-home/esc-index.json").read_text(encoding="utf-8"))
+        self.assertEqual(["com/example/home"], data["structure"]["package_areas"])
+
+
 if __name__ == "__main__":
     unittest.main()

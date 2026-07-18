@@ -89,12 +89,26 @@ def _roles(files: list[Path]) -> tuple[dict[str, list[str]], dict[str, int]]:
     return ({key: value for key, value in entry_points.items() if value}, counts)
 
 
+def _source_paths(paths: dict[str, str]) -> list[str]:
+    # A single "source" key covers the plain JVM src/main/kotlin layout; Kotlin
+    # Multiplatform components instead get one "source_<sourceSet>" key per
+    # commonMain/androidMain/iosMain/etc. (see gradle.py::component_structure) --
+    # both must be scanned for a KMP component's files to be found at all.
+    return sorted(value for key, value in paths.items() if key == "source" or key.startswith("source_"))
+
+
 def build_component_index(root: Path, repository_id: str, manifest_path: Path) -> dict[str, Any]:
     manifest = load_yaml(manifest_path)
     component = manifest["component"]
     component_root = root / component["path"]
     paths = manifest.get("paths", {})
-    files = _relative_kotlin_files(component_root, paths.get("source"))
+    files: list[Path] = []
+    package_areas: set[str] = set()
+    for source_path in _source_paths(paths):
+        source_files = _relative_kotlin_files(component_root, source_path)
+        files.extend(source_files)
+        package_areas.update(_package_areas(source_files, source_path))
+    files = sorted(files)
     entry_points, role_counts = _roles(files)
     ownership = component.get("ownership", {})
     routing = component.get("routing", {})
@@ -128,9 +142,10 @@ def build_component_index(root: Path, repository_id: str, manifest_path: Path) -
             str(Path(component["path"]) / value)
             for key, value in paths.items()
             if key in {"source", "tests", "resources", "test_resources", "migrations", "documentation"}
+            or key.startswith("source_") or key.startswith("tests_")
         ],
         "structure": {
-            "package_areas": _package_areas(files, paths.get("source")),
+            "package_areas": sorted(package_areas),
             "entry_points": entry_points,
             "role_counts": role_counts,
         },
