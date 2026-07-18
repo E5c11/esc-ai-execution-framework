@@ -3,14 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from esc_exec.architecture_lookup import load_architecture_index, resolve_architecture_docs, stub_documents
 from esc_exec.indexing import INDEX_FILE, validate_indexes
 from esc_exec.json_io import load_json, write_json
+from esc_exec.manifests import REPOSITORY_MANIFEST
+from esc_exec.registry import resolve_route
 from esc_exec.yaml_io import load_yaml, write_yaml
 from esc_exec.model import ManifestState
 from esc_exec.dependencies import analyze_impact
 
 
 GATES = ("focused", "component", "impact", "final")
+ARCHITECTURE_FRAMEWORK_ID = "esc-ai-architecture-framework"
+
+
+def _profile_ids(manifest: dict[str, Any]) -> list[str]:
+    return manifest.get("architecture", {}).get("profile_ids", []) or []
 
 
 def build_task_context(
@@ -20,6 +28,7 @@ def build_task_context(
     max_components: int = 10,
     max_paths: int = 30,
     max_references: int = 30,
+    registry_path: Path | None = None,
 ) -> dict[str, Any]:
     task_document = load_yaml(task_path)
     task = task_document["task"]
@@ -40,17 +49,44 @@ def build_task_context(
     missing = sorted(set(components) - set(indexed))
     if missing:
         raise ValueError(f"task components are not in the repository index: {', '.join(missing)}")
+    repository_profile_ids = _profile_ids(load_yaml(repository / REPOSITORY_MANIFEST))
+    architecture_index: dict[str, dict[str, Any]] | None = None
     selected = []
     for component_id in components:
         item = indexed[component_id]
         detail = load_json(repository / item["index"])
-        selected.append({
+        component_manifest = load_yaml(repository / item["manifest"])
+        profile_ids = list(dict.fromkeys(repository_profile_ids + _profile_ids(component_manifest)))
+        entry = {
             "id": item["id"],
             "purpose": item["purpose"],
             "manifest": item["manifest"],
             "index": item["index"],
             "search_roots": detail["search_roots"],
-        })
+        }
+        if profile_ids:
+            if registry_path is None:
+                raise ValueError(
+                    f"component {component_id} declares architecture.profile_ids but no "
+                    "registry_path was provided to resolve the architecture framework"
+                )
+            if architecture_index is None:
+                framework_root = resolve_route(registry_path, "frameworks", ARCHITECTURE_FRAMEWORK_ID)
+                architecture_index = load_architecture_index(framework_root)
+            documents, missing_docs = resolve_architecture_docs(profile_ids, architecture_index)
+            stubs = stub_documents(documents)
+            entry["architecture"] = {
+                "profile_ids": profile_ids,
+                "documents": [
+                    {"id": document["id"], "path": document["path"], "layer": document.get("layer", "")}
+                    for document in documents
+                ],
+            }
+            if missing_docs:
+                entry["architecture"]["missing"] = missing_docs
+            if stubs:
+                entry["architecture"]["stubs"] = [document["id"] for document in stubs]
+        selected.append(entry)
     document = {
         "schema_version": 1,
         "task": {"id": task["id"], "repository": task["repository"], "objective": task["objective"]},

@@ -271,6 +271,7 @@ def main(argv: list[str] | None = None) -> int:
                 document = build_task_context(
                     repository, args.task, args.output,
                     args.max_components, args.max_paths, args.max_references,
+                    registry_path=registry,
                 )
                 print(
                     f"GENERATED  {args.output} "

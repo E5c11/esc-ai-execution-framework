@@ -71,7 +71,7 @@ class OpenCodeAdapter:
         run_id, created_at = f"run-{uuid.uuid4().hex}", _now()
         run_dir = repository / ".esc-ai" / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=False)
-        context = build_task_context(repository, task_path, run_dir / "task-context.json")
+        context = build_task_context(repository, task_path, run_dir / "task-context.json", registry_path=self.registry_path)
         if session_id is None: session_id = self.client.create_session(repository, task["title"])["id"]
         events: list[dict[str, Any]] = []
         response: dict[str, Any] = {}

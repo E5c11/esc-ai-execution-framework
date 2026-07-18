@@ -24,7 +24,44 @@
       "properties": {
         "repository_index": {"type": "string"},
         "input_digest": {"type": "string"},
-        "components": {"type": "array"}
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "purpose", "manifest", "index", "search_roots"],
+            "properties": {
+              "id": {"type": "string"},
+              "purpose": {"type": "string"},
+              "manifest": {"type": "string"},
+              "index": {"type": "string"},
+              "search_roots": {"type": "array", "items": {"type": "string"}},
+              "architecture": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["profile_ids", "documents"],
+                "properties": {
+                  "profile_ids": {"type": "array", "items": {"type": "string"}},
+                  "documents": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["id", "path", "layer"],
+                      "properties": {
+                        "id": {"type": "string"},
+                        "path": {"type": "string"},
+                        "layer": {"type": "string"}
+                      }
+                    }
+                  },
+                  "missing": {"type": "array", "items": {"type": "string"}},
+                  "stubs": {"type": "array", "items": {"type": "string"}}
+                }
+              }
+            }
+          }
+        }
       }
     },
     "scope": {

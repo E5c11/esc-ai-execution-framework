@@ -60,8 +60,18 @@ artifacts an obvious, repository-local home instead of a process-relative defaul
       `stub_documents` flags `status: stub` entries for the Gap Protocol rather than
       treating them as fully specified. Missing doc IDs are reported back, never
       silently dropped.
-- [ ] Extend `build_task_context` and `schemas/task-context.schema.json` with a
-      resolved `architecture` section.
+- [x] Extend `build_task_context` and `schemas/task-context.schema.json` with a
+      resolved `architecture` section. `build_task_context` gained an optional
+      `registry_path` parameter (mirroring `validate_repository`'s pattern); for each
+      selected component it unions the repository's and component's
+      `architecture.profile_ids`, resolves them via `architecture_lookup`, and attaches
+      `{profile_ids, documents, missing?, stubs?}` under that component's entry in
+      `routing.components`. Raises if a component declares `profile_ids` but no
+      `registry_path` was given — that combination can't be resolved, so it fails loud
+      rather than silently omitting the section. `task-context.schema.json`'s
+      `routing.components` gained a proper `items` schema (it was untyped before).
+      Wired into the two real call sites: `OpenCodeAdapter.execute` (via
+      `self.registry_path`) and the CLI's `context build` command (via `registry`).
 - [ ] Instruction-precedence thin slice (ordering only, one known conflict case).
 
 ## Decisions
