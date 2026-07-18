@@ -1,5 +1,5 @@
 # Escape AI — Phase 1: Framework Composition Protocol
-**Status:** In progress
+**Status:** Complete
 **Roadmap capability:** 12
 **Plan:** see `esc-ai-orchestrator/plan/cohesive-system-integration-and-onboarding.md`
 (Phase 0 + Phase 1) for full rationale; this tracks only this repo's share.
@@ -72,7 +72,19 @@ artifacts an obvious, repository-local home instead of a process-relative defaul
       `routing.components` gained a proper `items` schema (it was untyped before).
       Wired into the two real call sites: `OpenCodeAdapter.execute` (via
       `self.registry_path`) and the CLI's `context build` command (via `registry`).
-- [ ] Instruction-precedence thin slice (ordering only, one known conflict case).
+- [x] Instruction-precedence thin slice (ordering only, one known conflict case).
+      `esc_exec/instructions.py`: `PRECEDENCE` fixes the plan's 6-level order as a
+      machine-readable tuple; `order_instruction_bundle` arranges labeled sources into
+      that order (unknown level names rejected, not silently ignored);
+      `check_extension_namespace_conflict` flags a project extension's document IDs
+      that collide with one of the architecture framework's 7 reserved prefixes
+      (`CORE-`, `PAT-`, `ARCH-`, `PLAT-`, `BUILD-`, `QG-`, `ORCH-`) — the one conflict
+      case the plan names. Deliberately not wired into `build_task_context` yet: the
+      other instruction sources (safety/operator policy, repository workflow policy
+      content) aren't structured data in this codebase yet, so there's nothing real to
+      compose until planning/execution (Phase 7/8) actually produces them.
+
+This closes out Phase 1's tracked deliverables in this repo.
 
 ## Decisions
 
