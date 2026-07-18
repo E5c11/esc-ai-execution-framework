@@ -1,0 +1,5 @@
+schema_version: 1
+framework:
+  id: esc-ai-execution-framework
+  major_version: 1
+  description: Manifests, indexes, execution contracts, profiles, verification, reports, checkpoints, dependency impact, adapters, and efficiency measurement.

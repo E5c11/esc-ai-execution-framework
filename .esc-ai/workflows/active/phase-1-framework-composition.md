@@ -33,12 +33,24 @@ artifacts an obvious, repository-local home instead of a process-relative defaul
       example scratch path for unrelated commands). Follow-up in
       `esc-ai-orchestrator`'s own tracking doc changes the `Runtime` protocol/
       `Scheduler` there to match.
-- [ ] Define a versioned framework descriptor
+- [x] Define a versioned framework descriptor
       (`schemas/framework-descriptor.schema.yaml` + `esc-framework.yaml` at this
       repo's and the architecture framework's root) and compatible-major-version
-      compatibility checking.
-- [ ] Extend repository/component manifests with an architecture selector
+      compatibility checking. `esc_exec/framework_descriptor.py`'s
+      `check_framework_compatibility` resolves each declared `frameworks.{id}` major
+      version against the checked-out framework's own `esc-framework.yaml`, wired into
+      `validate_repository` via an optional `registry_path` parameter (skipped when
+      not provided, so existing callers/tests are unaffected). `manifest validate`'s
+      CLI command now passes the registry through. Also registered as a
+      `framework-descriptor` contract kind in `contracts.py` for CLI parity.
+- [x] Extend repository/component manifests with an architecture selector
       (doc/profile ID), not just the current bare `frameworks: {id: version}` map.
+      Both `repository-manifest.schema.yaml` and `component-manifest.schema.yaml` gained
+      an optional `architecture: {profile_ids: [doc-id, ...]}` — repository-level sets
+      the default, component-level overrides/extends it. `manifests.py` validates only
+      the field's shape (non-empty list of non-empty strings); resolving whether the
+      IDs actually exist in the architecture framework's index is the task-context
+      integration deliverable below, not this one.
 - [x] Add an architecture-document lookup module reading the architecture
       framework's `index.json` directly (data contract, no code dependency between
       the two repos). `esc_exec/architecture_lookup.py`: `load_architecture_index`

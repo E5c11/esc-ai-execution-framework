@@ -18,6 +18,8 @@ properties:
   frameworks:
     type: object
     additionalProperties: {type: string, minLength: 1}
+  architecture:
+    $ref: "#/$defs/architecture"
   components:
     type: array
     minItems: 1
@@ -39,5 +41,13 @@ $defs:
       generator: {type: string, minLength: 1}
       sources:
         type: array
+        items: {type: string, minLength: 1}
+  architecture:
+    type: object
+    additionalProperties: false
+    properties:
+      profile_ids:
+        type: array
+        minItems: 1
         items: {type: string, minLength: 1}
 

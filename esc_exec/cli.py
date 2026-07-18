@@ -235,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "manifest":
-        results = validate_repository(args.repository)
+        results = validate_repository(args.repository, registry)
         for result in results:
             _print_result(result)
         return overall_exit_code(results)

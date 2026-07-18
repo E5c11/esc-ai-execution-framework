@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from esc_exec.framework_descriptor import check_framework_compatibility
 from esc_exec.gradle import component_structure, detect_gradle_repository
 from esc_exec.model import ManifestState, ValidationResult
 from esc_exec.registry import RENAMED_FRAMEWORK_IDS
@@ -21,6 +22,18 @@ def _merge_generated(existing: dict[str, Any], generated: dict[str, Any]) -> dic
         else:
             result[key] = value
     return result
+
+
+def _architecture_selector_errors(data: dict[str, Any]) -> list[str]:
+    architecture = data.get("architecture")
+    if architecture is None:
+        return []
+    if not isinstance(architecture, dict) or set(architecture) - {"profile_ids"}:
+        return ["architecture must be a mapping with only a profile_ids key"]
+    profile_ids = architecture.get("profile_ids")
+    if not isinstance(profile_ids, list) or not profile_ids or not all(isinstance(item, str) and item.strip() for item in profile_ids):
+        return ["architecture.profile_ids must be a non-empty list of non-empty strings"]
+    return []
 
 
 def generate_gradle_manifests(root: Path) -> list[Path]:
@@ -71,7 +84,7 @@ def generate_gradle_manifests(root: Path) -> list[Path]:
     return written
 
 
-def validate_repository(root: Path) -> list[ValidationResult]:
+def validate_repository(root: Path, registry_path: Path | None = None) -> list[ValidationResult]:
     root = root.resolve()
     repository_path = root / REPOSITORY_MANIFEST
     if not repository_path.exists():
@@ -100,6 +113,7 @@ def validate_repository(root: Path) -> list[ValidationResult]:
     if not isinstance(components, list) or not components:
         repo_messages.append("components must be a non-empty list")
         components = []
+    repo_messages.extend(_architecture_selector_errors(repository))
     results.append(ValidationResult(
         ManifestState.INVALID if repo_messages else ManifestState.VALID,
         str(repository_path),
@@ -145,6 +159,17 @@ def validate_repository(root: Path) -> list[ValidationResult]:
             )
     except ValueError:
         pass
+
+    if registry_path is not None:
+        compatibility = check_framework_compatibility(repository, registry_path)
+        if compatibility.state != ManifestState.VALID:
+            precedence = {ManifestState.VALID: 0, ManifestState.INCOMPLETE: 1, ManifestState.STALE: 2, ManifestState.INVALID: 3}
+            escalated = max(results[0].state, compatibility.state, key=precedence.__getitem__)
+            results[0] = ValidationResult(
+                escalated,
+                str(repository_path),
+                results[0].messages + compatibility.messages,
+            )
     return results
 
 
@@ -184,6 +209,7 @@ def validate_component(root: Path, path: Path, expected_id: Any = None) -> Valid
     build = data.get("build")
     if not isinstance(build, dict) or build.get("system") != "gradle":
         invalid.append("build.system must be `gradle` for a generated Gradle component")
+    invalid.extend(_architecture_selector_errors(data))
     if invalid:
         return ValidationResult(ManifestState.INVALID, str(path), invalid + incomplete)
     if incomplete:

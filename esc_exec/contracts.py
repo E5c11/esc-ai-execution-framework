@@ -26,6 +26,7 @@ CONTRACT_FORMATS = {
     "impact-analysis": "json",
     "run-metrics": "json",
     "efficiency-comparison": "json",
+    "framework-descriptor": "yaml",
 }
 
 REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
@@ -75,6 +76,10 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
     },
     "efficiency-comparison": {
         "root": ("schema_version", "baseline_runs", "candidate_runs", "dimensions", "generated_at"),
+    },
+    "framework-descriptor": {
+        "root": ("schema_version", "framework"),
+        "framework": ("id", "major_version"),
     },
 }
 

@@ -5,7 +5,7 @@ import unittest
 
 from esc_exec.manifests import generate_gradle_manifests, validate_repository
 from esc_exec.model import ManifestState
-from esc_exec.registry import RENAMED_FRAMEWORK_IDS
+from esc_exec.registry import RENAMED_FRAMEWORK_IDS, add_route
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
@@ -67,6 +67,75 @@ class ManifestTests(unittest.TestCase):
         results = validate_repository(self.root)
         self.assertEqual(ManifestState.STALE, results[0].state)
         self.assertTrue(any("renamed framework ID" in message for message in results[0].messages))
+
+    def test_matching_framework_major_version_is_valid(self):
+        generate_gradle_manifests(self.root)
+        registry = self.root / "registry.yaml"
+        framework_dir = self.root / "framework-checkout"
+        framework_dir.mkdir()
+        write_yaml(framework_dir / "esc-framework.yaml", {
+            "schema_version": 1,
+            "framework": {"id": "esc-ai-execution-framework", "major_version": 1},
+        })
+        add_route(registry, "frameworks", "esc-ai-execution-framework", framework_dir)
+        repository_path = self.root / "esc-execution.yaml"
+        repository = load_yaml(repository_path)
+        repository["frameworks"] = {"esc-ai-execution-framework": "1"}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root, registry)
+        self.assertNotEqual(ManifestState.INVALID, results[0].state)
+        self.assertFalse(any("major version" in message for message in results[0].messages))
+
+    def test_mismatched_framework_major_version_is_stale(self):
+        generate_gradle_manifests(self.root)
+        registry = self.root / "registry.yaml"
+        framework_dir = self.root / "framework-checkout"
+        framework_dir.mkdir()
+        write_yaml(framework_dir / "esc-framework.yaml", {
+            "schema_version": 1,
+            "framework": {"id": "esc-ai-execution-framework", "major_version": 2},
+        })
+        add_route(registry, "frameworks", "esc-ai-execution-framework", framework_dir)
+        repository_path = self.root / "esc-execution.yaml"
+        repository = load_yaml(repository_path)
+        repository["frameworks"] = {"esc-ai-execution-framework": "1"}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root, registry)
+        self.assertEqual(ManifestState.STALE, results[0].state)
+        self.assertTrue(any("major version 1" in message and "major version 2" in message for message in results[0].messages))
+
+    def test_missing_framework_descriptor_is_invalid(self):
+        generate_gradle_manifests(self.root)
+        registry = self.root / "registry.yaml"
+        framework_dir = self.root / "framework-checkout"
+        framework_dir.mkdir()
+        add_route(registry, "frameworks", "esc-ai-execution-framework", framework_dir)
+        repository_path = self.root / "esc-execution.yaml"
+        repository = load_yaml(repository_path)
+        repository["frameworks"] = {"esc-ai-execution-framework": "1"}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root, registry)
+        self.assertEqual(ManifestState.INVALID, results[0].state)
+        self.assertTrue(any("could not read" in message for message in results[0].messages))
+
+    def test_valid_architecture_selector_is_accepted(self):
+        generate_gradle_manifests(self.root)
+        repository_path = self.root / "esc-execution.yaml"
+        repository = load_yaml(repository_path)
+        repository["architecture"] = {"profile_ids": ["ORCH-BE-FEAT"]}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertNotEqual(ManifestState.INVALID, results[0].state)
+
+    def test_invalid_architecture_selector_shape_is_invalid(self):
+        generate_gradle_manifests(self.root)
+        repository_path = self.root / "esc-execution.yaml"
+        repository = load_yaml(repository_path)
+        repository["architecture"] = {"profile_ids": []}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertEqual(ManifestState.INVALID, results[0].state)
+        self.assertTrue(any("profile_ids" in message for message in results[0].messages))
 
     def test_schema_documents_are_valid_yaml_mappings(self):
         schemas = Path(__file__).parents[1] / "schemas"
