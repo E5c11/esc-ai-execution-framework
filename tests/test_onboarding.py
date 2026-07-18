@@ -245,6 +245,20 @@ class OnboardingTests(unittest.TestCase):
         second = apply_onboarding_answers(self.root, proposal, answers)
         self.assertNotIn("core/api/esc-verification-profile.yaml", second["written"])
 
+    def test_apply_answers_bootstraps_workflow_inheritance(self):
+        proposal = analyze_repository(self.root)
+        answers = {"core-api": {"purpose": "Owns it."}, "feature": {"purpose": "Owns the feature."}}
+        result = apply_onboarding_answers(self.root, proposal, answers)
+        self.assertIn("INSTRUCTIONS.md", result["workflow_inheritance"]["created"])
+        self.assertIn(".esc-ai/workflows/README.md", result["workflow_inheritance"]["created"])
+        self.assertTrue((self.root / "INSTRUCTIONS.md").is_file())
+        self.assertTrue((self.root / ".esc-ai/workflows/README.md").is_file())
+
+        # Re-applying must report the files as existing, not recreate/overwrite them.
+        second = apply_onboarding_answers(self.root, proposal, answers)
+        self.assertEqual([], second["workflow_inheritance"]["created"])
+        self.assertIn("INSTRUCTIONS.md", second["workflow_inheritance"]["existing"])
+
 
 if __name__ == "__main__":
     unittest.main()

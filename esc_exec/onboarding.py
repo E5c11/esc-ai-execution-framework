@@ -14,6 +14,7 @@ from esc_exec.indexing import generate_indexes
 from esc_exec.manifests import COMPONENT_MANIFEST, REPOSITORY_MANIFEST, generate_gradle_manifests
 from esc_exec.registry import resolve_route
 from esc_exec.task_context import generate_gradle_verification_profile
+from esc_exec.workflow_bootstrap import bootstrap_workflow_inheritance
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
@@ -326,9 +327,13 @@ def apply_onboarding_answers(
             generate_architecture_profile(root, component_id)
             written.append(architecture_profile_path)
 
+    repository_manifest = load_yaml(root / REPOSITORY_MANIFEST)
+    workflow_inheritance = bootstrap_workflow_inheritance(root, repository_manifest)
+
     return {
         "written": [str(path.relative_to(root)) for path in written],
         "empty_profile_id_suggestions": empty_profile_id_suggestions,
         "stub_documents": stub_warnings,
         "missing_documents": missing_warnings,
+        "workflow_inheritance": workflow_inheritance,
     }
