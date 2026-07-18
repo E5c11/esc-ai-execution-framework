@@ -179,6 +179,56 @@ class OpenCodeAdapterTests(unittest.TestCase):
             self.assertEqual(expected_grant, run["bindings"]["tool_grant"])
             self.assertEqual(ManifestState.VALID, validate_contract("run", run_dir / "run.json").state)
 
+    def test_instruction_bundle_is_written_ordered_and_referenced_from_run_json(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._repository(root)
+            add_route(registry, "repositories", "ampm-backend", repository)
+            run_dir = OpenCodeAdapter(FakeOpenCodeClient(), registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml", examples / "adapter.yaml", examples / "policy.yaml",
+            )
+            bundle_path = run_dir / "instruction-bundle.json"
+            self.assertTrue(bundle_path.is_file())
+            document = json.loads(bundle_path.read_text())
+            self.assertEqual(1, document["schema_version"])
+            levels = [entry["level"] for entry in document["levels"]]
+            # PRECEDENCE order must be respected; only non-empty levels appear.
+            self.assertEqual(sorted(levels, key=levels.index), levels)
+            self.assertIn("safety_and_operator_policy", levels)
+            self.assertIn("component_manifests_and_profiles", levels)
+            self.assertIn("active_workflow_task_specification", levels)
+            safety = next(entry for entry in document["levels"] if entry["level"] == "safety_and_operator_policy")
+            self.assertEqual(["policy:readonly-review"], safety["sources"])
+            run = json.loads((run_dir / "run.json").read_text())
+            self.assertEqual("instruction-bundle.json", run["bindings"]["instruction_bundle"])
+
+    def test_instruction_bundle_includes_workflow_policy_extension_reference(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._repository(root)
+            workflow_readme = repository / ".esc-ai" / "workflows" / "README.md"
+            workflow_readme.parent.mkdir(parents=True)
+            workflow_readme.write_text(
+                "---\nschema_version: 1\npolicy:\n  extension:\n    id: ampm-backend-framework\n    precedence: overrides core for backend rules\n---\n\n# Workflows\n",
+                encoding="utf-8",
+            )
+            add_route(registry, "repositories", "ampm-backend", repository)
+            run_dir = OpenCodeAdapter(FakeOpenCodeClient(), registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml", examples / "adapter.yaml", examples / "policy.yaml",
+            )
+            document = json.loads((run_dir / "instruction-bundle.json").read_text())
+            workflow_level = next(
+                entry for entry in document["levels"] if entry["level"] == "repository_instructions_and_workflow_policy"
+            )
+            self.assertIn(".esc-ai/workflows/README.md", workflow_level["sources"])
+            self.assertIn("extension:ampm-backend-framework", workflow_level["sources"])
+
 
 if __name__ == "__main__":
     unittest.main()

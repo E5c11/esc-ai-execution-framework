@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "process": {"kind": "onboarding", "id": "ampm-backend"},
+  "questions": {"asked": 3, "answered": 3},
+  "elapsed_seconds": 184.5,
+  "generated_at": "2026-07-17T12:00:03Z"
+}

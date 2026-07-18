@@ -29,6 +29,7 @@ CONTRACT_FORMATS = {
     "framework-descriptor": "yaml",
     "onboarding-proposal": "json",
     "initiative": "yaml",
+    "process-metrics": "json",
 }
 
 REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
@@ -92,6 +93,11 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
         "root": ("schema_version", "initiative"),
         "initiative": ("id", "objective", "work_type", "tasks"),
     },
+    "process-metrics": {
+        "root": ("schema_version", "process", "questions", "elapsed_seconds", "generated_at"),
+        "process": ("kind", "id"),
+        "questions": ("asked", "answered"),
+    },
 }
 
 ENUMS: dict[str, dict[str, set[str]]] = {
@@ -126,6 +132,9 @@ ENUMS: dict[str, dict[str, set[str]]] = {
     },
     "initiative": {
         "initiative.work_type": {"feature", "fix", "refactor", "maintenance", "investigation"},
+    },
+    "process-metrics": {
+        "process.kind": {"onboarding", "planning"},
     },
 }
 
@@ -406,6 +415,13 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
                         messages.append(prefix + f"files[{index}].evidence must be a non-empty string")
             if not isinstance(document.get("semantic_questions"), list):
                 messages.append(prefix + "semantic_questions must be an array")
+        if kind == "process-metrics":
+            questions = document.get("questions", {})
+            asked, answered = questions.get("asked"), questions.get("answered")
+            if not isinstance(asked, int) or asked < 0 or not isinstance(answered, int) or answered < 0:
+                messages.append(prefix + "questions.asked/answered must be non-negative integers")
+            elif answered > asked:
+                messages.append(prefix + "questions.answered cannot exceed questions.asked")
     state = ManifestState.INVALID if messages else ManifestState.VALID
     return ValidationResult(state, str(path), messages)
 

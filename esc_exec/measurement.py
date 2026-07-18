@@ -21,6 +21,38 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _parse_timestamp(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def process_metrics(
+    kind: str,
+    process_id: str,
+    created_at: str,
+    updated_at: str,
+    questions_asked: int,
+    questions_answered: int,
+) -> dict[str, Any]:
+    """
+    A minimal, comparable efficiency record for a non-execution process (onboarding
+    or planning) -- same spirit as run_metrics, but for the human-interaction side
+    of the system rather than a model run. Deliberately minimal: elapsed wall-clock
+    time between creation and completion, and how many questions were asked versus
+    answered. No dashboard or comparison engine here -- there is no real usage data
+    yet to compare against.
+    """
+    if kind not in ("onboarding", "planning"):
+        raise ValueError(f"unsupported process kind: {kind}")
+    elapsed_seconds = max((_parse_timestamp(updated_at) - _parse_timestamp(created_at)).total_seconds(), 0.0)
+    return {
+        "schema_version": 1,
+        "process": {"kind": kind, "id": process_id},
+        "questions": {"asked": questions_asked, "answered": questions_answered},
+        "elapsed_seconds": round(elapsed_seconds, 3),
+        "generated_at": now(),
+    }
+
+
 def token_metrics(response: dict[str, Any]) -> dict[str, Any]:
     raw = response.get("info", {}).get("tokens")
     if not isinstance(raw, dict):

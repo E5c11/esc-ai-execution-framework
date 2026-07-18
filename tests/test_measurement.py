@@ -4,7 +4,7 @@ import unittest
 
 from esc_exec.contracts import validate_contract
 from esc_exec.json_io import write_json
-from esc_exec.measurement import compare_efficiency, token_metrics
+from esc_exec.measurement import compare_efficiency, process_metrics, token_metrics
 from esc_exec.model import ManifestState
 
 
@@ -38,3 +38,31 @@ class MeasurementTests(unittest.TestCase):
         result = token_metrics({"info": {}})
         self.assertEqual("unavailable", result["status"])
         self.assertIsNone(result["total"])
+
+    def test_process_metrics_computes_elapsed_seconds_and_validates(self):
+        with TemporaryDirectory() as temp:
+            output = Path(temp) / "process-metrics.json"
+            document = process_metrics(
+                "onboarding", "ampm-backend",
+                "2026-07-17T12:00:00Z", "2026-07-17T12:03:04.500Z",
+                questions_asked=3, questions_answered=3,
+            )
+            self.assertEqual(184.5, document["elapsed_seconds"])
+            write_json(output, document)
+            self.assertEqual(ManifestState.VALID, validate_contract("process-metrics", output).state)
+
+    def test_process_metrics_rejects_unsupported_kind(self):
+        with self.assertRaisesRegex(ValueError, "unsupported process kind"):
+            process_metrics("execution", "x", "2026-07-17T12:00:00Z", "2026-07-17T12:00:00Z", 0, 0)
+
+    def test_process_metrics_answered_exceeding_asked_is_invalid(self):
+        with TemporaryDirectory() as temp:
+            output = Path(temp) / "process-metrics.json"
+            document = process_metrics(
+                "planning", "init-1", "2026-07-17T12:00:00Z", "2026-07-17T12:00:05Z",
+                questions_asked=1, questions_answered=2,
+            )
+            write_json(output, document)
+            result = validate_contract("process-metrics", output)
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("cannot exceed" in message for message in result.messages))

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/process-metrics-v1.schema.json",
+  "title": "ESC AI Process Metrics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "process", "questions", "elapsed_seconds", "generated_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "process": {"type": "object"},
+    "questions": {"type": "object"},
+    "elapsed_seconds": {"type": "number", "minimum": 0},
+    "generated_at": {"type": "string", "format": "date-time"}
+  }
+}

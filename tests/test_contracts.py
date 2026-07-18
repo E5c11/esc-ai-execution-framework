@@ -29,6 +29,7 @@ class ContractTests(unittest.TestCase):
             "framework-descriptor": examples / "framework-descriptor.yaml",
             "onboarding-proposal": examples / "onboarding-proposal.json",
             "initiative": examples / "initiative.yaml",
+            "process-metrics": examples / "process-metrics.json",
         }
         self.assertEqual(set(CONTRACT_FORMATS), set(paths))
         for kind, path in paths.items():
