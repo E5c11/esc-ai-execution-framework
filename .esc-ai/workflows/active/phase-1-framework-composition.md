@@ -39,9 +39,15 @@ artifacts an obvious, repository-local home instead of a process-relative defaul
       compatibility checking.
 - [ ] Extend repository/component manifests with an architecture selector
       (doc/profile ID), not just the current bare `frameworks: {id: version}` map.
-- [ ] Add an architecture-document lookup module reading the architecture
+- [x] Add an architecture-document lookup module reading the architecture
       framework's `index.json` directly (data contract, no code dependency between
-      the two repos).
+      the two repos). `esc_exec/architecture_lookup.py`: `load_architecture_index`
+      reads the index; `resolve_architecture_docs` topologically resolves one or more
+      seed doc IDs via `requires`, merging multi-seed results by layer order rather
+      than forcing every seed to the end (that only made sense for a single seed);
+      `stub_documents` flags `status: stub` entries for the Gap Protocol rather than
+      treating them as fully specified. Missing doc IDs are reported back, never
+      silently dropped.
 - [ ] Extend `build_task_context` and `schemas/task-context.schema.json` with a
       resolved `architecture` section.
 - [ ] Instruction-precedence thin slice (ordering only, one known conflict case).
