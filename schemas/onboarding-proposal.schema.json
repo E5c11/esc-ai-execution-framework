@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/onboarding-proposal-v1.schema.json",
+  "title": "ESC AI Onboarding Proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository", "input_digest", "files", "semantic_questions", "existing_adoption"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {"type": "string", "minLength": 1}
+      }
+    },
+    "input_digest": {"type": "string", "minLength": 1},
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "action", "evidence"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "action": {"enum": ["create", "update", "preserve", "deprecate"]},
+          "evidence": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "semantic_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component_id", "field", "prompt"],
+        "properties": {
+          "component_id": {"type": "string", "minLength": 1},
+          "field": {"type": "string", "minLength": 1},
+          "prompt": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "existing_adoption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instructions_file", "workflows_directory", "project_profile"],
+      "properties": {
+        "instructions_file": {"type": "boolean"},
+        "workflows_directory": {"type": "boolean"},
+        "project_profile": {"type": "boolean"}
+      }
+    }
+  }
+}

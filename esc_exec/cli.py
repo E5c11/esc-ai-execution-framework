@@ -5,7 +5,9 @@ from pathlib import Path
 
 from esc_exec.contracts import CONTRACT_FORMATS, validate_contract, validate_contract_set
 from esc_exec.indexing import generate_indexes, match_components, validate_indexes
+from esc_exec.json_io import write_json
 from esc_exec.manifests import generate_gradle_manifests, overall_exit_code, validate_repository
+from esc_exec.onboarding import analyze_repository
 from esc_exec.opencode_adapter import OpenCodeAdapter, OpenCodeClient, OpenCodeError
 from esc_exec.registry import (
     add_ecosystem, add_route, default_registry_path, migrate_legacy_registry,
@@ -54,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
     system = subcommands.add_parser("system", help="Manage the machine-local system catalog itself")
     system_commands = system.add_subparsers(dest="system_command", required=True)
     system_commands.add_parser("migrate")
+
+    repository = subcommands.add_parser("repository", help="Read-only repository onboarding analysis")
+    repository_commands = repository.add_subparsers(dest="repository_command", required=True)
+    repository_analyze = repository_commands.add_parser("analyze")
+    repository_analyze.add_argument("path", type=Path)
+    repository_analyze.add_argument("--output", type=Path)
 
     manifest = subcommands.add_parser("manifest", help="Generate and validate repository/component manifests")
     manifest_commands = manifest.add_subparsers(dest="manifest_command", required=True)
@@ -201,6 +209,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"NO ACTION  no legacy {legacy_path} found")
             return 0
         print(f"MIGRATED   {legacy_path} -> {migrated}")
+        return 0
+    if args.command == "repository":
+        try:
+            proposal = analyze_repository(args.path)
+        except (OSError, ValueError) as exc:
+            print(f"INVALID    {exc}")
+            return 1
+        if args.output:
+            write_json(args.output, proposal)
+            print(f"GENERATED  {args.output}")
+        actions = ", ".join(f"{entry['action']}={entry['path']}" for entry in proposal["files"])
+        print(
+            f"ANALYZED   {proposal['repository']['id']} ({proposal['repository']['type']}) "
+            f"digest={proposal['input_digest'][:12]} questions={len(proposal['semantic_questions'])}"
+        )
+        print(f"  files: {actions}")
         return 0
     if args.command == "route":
         category = {

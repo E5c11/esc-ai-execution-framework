@@ -27,6 +27,7 @@ CONTRACT_FORMATS = {
     "run-metrics": "json",
     "efficiency-comparison": "json",
     "framework-descriptor": "yaml",
+    "onboarding-proposal": "json",
 }
 
 REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
@@ -80,6 +81,11 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
     "framework-descriptor": {
         "root": ("schema_version", "framework"),
         "framework": ("id", "major_version"),
+    },
+    "onboarding-proposal": {
+        "root": ("schema_version", "repository", "input_digest", "files", "semantic_questions", "existing_adoption"),
+        "repository": ("id", "type"),
+        "existing_adoption": ("instructions_file", "workflows_directory", "project_profile"),
     },
 }
 
@@ -360,6 +366,18 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
             dimensions = document.get("dimensions")
             if not isinstance(dimensions, dict) or not dimensions:
                 messages.append(prefix + "dimensions must be a non-empty object")
+        if kind == "onboarding-proposal":
+            files = document.get("files")
+            if not isinstance(files, list) or not files:
+                messages.append(prefix + "files must be a non-empty array")
+            else:
+                for index, entry in enumerate(files):
+                    if not isinstance(entry, dict) or entry.get("action") not in {"create", "update", "preserve", "deprecate"}:
+                        messages.append(prefix + f"files[{index}] has an invalid action")
+                    elif not isinstance(entry.get("evidence"), str) or not entry["evidence"].strip():
+                        messages.append(prefix + f"files[{index}].evidence must be a non-empty string")
+            if not isinstance(document.get("semantic_questions"), list):
+                messages.append(prefix + "semantic_questions must be an array")
     state = ManifestState.INVALID if messages else ManifestState.VALID
     return ValidationResult(state, str(path), messages)
 

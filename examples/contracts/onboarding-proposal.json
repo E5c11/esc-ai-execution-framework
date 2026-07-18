@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "repository": {
+    "id": "ampm-backend",
+    "type": "gradle-multi-project"
+  },
+  "input_digest": "b7a2c1e4f6d9081726354a9bcdef0123456789abcdef0123456789abcdef012",
+  "files": [
+    {
+      "path": "esc-execution.yaml",
+      "action": "preserve",
+      "evidence": "Existing manifest matches detected structure."
+    },
+    {
+      "path": "content/esc-component.yaml",
+      "action": "create",
+      "evidence": "No manifest found for detected component `content` at `content`."
+    }
+  ],
+  "semantic_questions": [
+    {
+      "component_id": "content",
+      "field": "purpose",
+      "prompt": "What is the purpose of component `content`?"
+    }
+  ],
+  "existing_adoption": {
+    "instructions_file": true,
+    "workflows_directory": true,
+    "project_profile": false
+  }
+}
