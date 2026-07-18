@@ -28,6 +28,7 @@ CONTRACT_FORMATS = {
     "efficiency-comparison": "json",
     "framework-descriptor": "yaml",
     "onboarding-proposal": "json",
+    "initiative": "yaml",
 }
 
 REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
@@ -87,6 +88,10 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
         "repository": ("id", "type"),
         "existing_adoption": ("instructions_file", "workflows_directory", "project_profile"),
     },
+    "initiative": {
+        "root": ("schema_version", "initiative"),
+        "initiative": ("id", "objective", "work_type", "tasks"),
+    },
 }
 
 ENUMS: dict[str, dict[str, set[str]]] = {
@@ -118,6 +123,9 @@ ENUMS: dict[str, dict[str, set[str]]] = {
     "run-metrics": {
         "run.status": {"succeeded", "failed", "cancelled", "interrupted"},
         "tokens.status": {"reported", "unavailable"},
+    },
+    "initiative": {
+        "initiative.work_type": {"feature", "fix", "refactor", "maintenance", "investigation"},
     },
 }
 
@@ -214,6 +222,26 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
             for artifact in progress.get("artifacts", []):
                 if isinstance(artifact, str) and Path(artifact).is_absolute():
                     messages.append(prefix + "progress.artifacts must be repository/run-relative")
+        if kind == "initiative":
+            tasks = _value_at(document, "initiative.tasks")
+            declared: set[str] = set()
+            if isinstance(tasks, list):
+                for task in tasks:
+                    if isinstance(task, dict) and isinstance(task.get("repository"), str) and isinstance(task.get("task_id"), str):
+                        declared.add(f"{task['repository']}/{task['task_id']}")
+                for task in tasks:
+                    if not isinstance(task, dict) or not task.get("repository") or not task.get("task_id"):
+                        messages.append(prefix + "every initiative.tasks item requires repository and task_id")
+                        continue
+                    for dependency in task.get("depends_on", []) or []:
+                        if dependency not in declared:
+                            messages.append(
+                                prefix + f"initiative.tasks depends_on `{dependency}` does not reference "
+                                "a declared repository/task_id in this same initiative"
+                            )
+            else:
+                messages.append(prefix + "initiative.tasks must be a list")
+
         if kind == "adapter":
             capabilities = _value_at(document, "adapter.capabilities")
             if not isinstance(capabilities, list) or not capabilities:

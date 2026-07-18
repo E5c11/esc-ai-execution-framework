@@ -1,0 +1,14 @@
+schema_version: 1
+initiative:
+  id: feature-user-export
+  objective: Let a user export their own data as CSV from the mobile app.
+  work_type: feature
+  tasks:
+    - repository: ampm-contracts
+      task_id: task-contract
+    - repository: ampm-backend
+      task_id: task-api
+      depends_on: [ampm-contracts/task-contract]
+    - repository: ampm-mobile
+      task_id: task-client
+      depends_on: [ampm-backend/task-api]
