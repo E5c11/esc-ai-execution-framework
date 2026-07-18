@@ -19,7 +19,20 @@
         "ended_at": {"type": "string", "format": "date-time"}
       }
     },
-    "bindings": {"type": "object", "required": ["adapter", "workspace", "policy"]},
+    "bindings": {
+      "type": "object",
+      "required": ["adapter", "workspace", "policy"],
+      "properties": {
+        "adapter": {"type": "string"},
+        "workspace": {"type": "string"},
+        "policy": {"type": "string"},
+        "tool_grant": {
+          "type": "object",
+          "description": "The actual tool grant computed from the policy's permissions for this run (see esc_exec.opencode_adapter.tools_for_policy) -- an inspectable record of what was really enforced, not just which policy ID was bound.",
+          "additionalProperties": {"type": "boolean"}
+        }
+      }
+    },
     "events": {"type": "string"},
     "artifacts": {"type": "array", "items": {"type": "string"}},
     "adapter_metadata": {"type": "object"}

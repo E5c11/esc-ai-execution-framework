@@ -27,8 +27,19 @@ index, creates or resumes a session, and writes portable `run.json`, `events.jso
 resolved from the task's `repository` field via the registry, not a location the caller
 chooses.
 
-Read-only policy disables `bash`, `edit`, `write`, `patch`, `webfetch`, tasks, and todo
-tools while allowing `read`, `list`, `glob`, and `grep`.
+The OpenCode tool grant for the run is derived from the policy document's
+`permissions` (see `esc_exec.opencode_adapter.tools_for_policy`): `read` maps to
+`read`/`list`/`glob`/`grep`, `edit` to `edit`/`write`/`patch`, `execute` to `bash`,
+`network` to `webfetch` — granted only when the category is exactly `allow`.
+`examples/contracts/policy.yaml` ("readonly-review") happens to compute to a
+read-only grant, but it's one example policy, not the adapter's only possible
+behavior — a policy declaring `edit: allow` produces a run that can actually edit
+files. A permission valued `ask` is treated as denied (there's no mid-run
+human-escalation path yet), and `external_paths`/`limits`/`approvals` are not
+enforced by this mapping at all — they need path-scoping and run-duration/approval
+gating, a different mechanism. The tool grant actually used is recorded at
+`run.bindings.tool_grant` in the run's `run.json`, so it's auditable after the fact
+rather than only inferable by re-reading the policy file.
 
 ## Resume and fork
 

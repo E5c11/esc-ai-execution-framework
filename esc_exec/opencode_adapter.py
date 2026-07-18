@@ -18,7 +18,44 @@ from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
 from esc_exec.measurement import run_metrics
 
-READ_ONLY_TOOLS = {"read": True, "list": True, "glob": True, "grep": True, "bash": False, "edit": False, "write": False, "patch": False, "webfetch": False, "task": False, "todowrite": False, "todoread": False}
+def tools_for_policy(policy_document: dict[str, Any]) -> dict[str, bool]:
+    """
+    Map a policy document's permissions onto the OpenCode tool grant actually sent
+    with a run's prompt. Deny-by-default: a tool is granted only if its owning
+    permission category is exactly "allow".
+
+    - permissions.read   -> read, list, glob, grep
+    - permissions.edit   -> edit, write, patch
+    - permissions.execute -> bash
+    - permissions.network -> webfetch
+
+    "ask" is treated as denied, not as a softer form of allow. There is no mid-run
+    human-escalation mechanism yet to actually honor an "ask" prompt, and silently
+    auto-approving it would be worse than denying it outright -- that's a known,
+    deliberate simplification, not an oversight.
+
+    task/todowrite/todoread aren't covered by any policy.schema.yaml permission
+    category, so they stay denied unconditionally rather than inventing a mapping
+    for them.
+
+    NOT enforced by this function, on purpose: permissions.external_paths (needs
+    path-scoping the tool call arguments, not a tool on/off flag) and the policy
+    document's limits/approvals fields (need run-duration and approval-gating
+    mechanisms, not a tool grant). A policy that declares these gets them schema-
+    validated, not behaviorally enforced -- that gap is real and this function does
+    not close it.
+    """
+    permissions = policy_document.get("permissions", {})
+    def granted(category: str) -> bool:
+        return permissions.get(category) == "allow"
+    read, edit, execute, network = granted("read"), granted("edit"), granted("execute"), granted("network")
+    return {
+        "read": read, "list": read, "glob": read, "grep": read,
+        "bash": execute,
+        "edit": edit, "write": edit, "patch": edit,
+        "webfetch": network,
+        "task": False, "todowrite": False, "todoread": False,
+    }
 
 
 def _now() -> str:
@@ -47,8 +84,8 @@ class OpenCodeClient:
     def health(self, directory: Path) -> dict[str, Any]: return self._request("GET", "/project/current", directory)
     def create_session(self, directory: Path, title: str) -> dict[str, Any]: return self._request("POST", "/session", directory, {"title": title})
     def fork(self, directory: Path, session_id: str) -> dict[str, Any]: return self._request("POST", f"/session/{session_id}/fork", directory, {})
-    def prompt(self, directory: Path, session_id: str, prompt: str, model: dict[str, str] | None = None) -> dict[str, Any]:
-        body: dict[str, Any] = {"agent": "plan", "tools": READ_ONLY_TOOLS, "parts": [{"type": "text", "text": prompt}]}
+    def prompt(self, directory: Path, session_id: str, prompt: str, tools: dict[str, bool], model: dict[str, str] | None = None) -> dict[str, Any]:
+        body: dict[str, Any] = {"agent": "plan", "tools": tools, "parts": [{"type": "text", "text": prompt}]}
         if model: body["model"] = {"providerID": model["provider_id"], "modelID": model["model_id"]}
         return self._request("POST", f"/session/{session_id}/message", directory, body)
 
@@ -62,7 +99,8 @@ class OpenCodeAdapter:
             result = validate_contract(kind, path)
             if result.state != ManifestState.VALID: raise ValueError(f"Invalid {kind}: {'; '.join(result.messages)}")
         task_doc, workspace = load_yaml(task_path), load_yaml(workspace_path)["workspace"]
-        task, adapter, policy = task_doc["task"], load_yaml(adapter_path)["adapter"], load_yaml(policy_path)["policy"]
+        policy_document = load_yaml(policy_path)
+        task, adapter, policy = task_doc["task"], load_yaml(adapter_path)["adapter"], policy_document["policy"]
         if adapter["provider"] != "opencode" or adapter["kind"] != "agent-runtime": raise ValueError("Adapter must be OpenCode agent-runtime")
         if workspace["repository"] != task["repository"]: raise ValueError("Workspace repository must match task repository")
         started = time.monotonic()
@@ -78,8 +116,9 @@ class OpenCodeAdapter:
         tools: list[dict[str, Any]] = []
         self._event(events, run_id, "run.started", "orchestrator", {"task_id": task["id"]})
         artifact_name: str | None = None
+        tool_grant = tools_for_policy(policy_document)
         try:
-            response = self.client.prompt(repository, session_id, self._prompt(context), adapter.get("configuration", {}).get("model"))
+            response = self.client.prompt(repository, session_id, self._prompt(context, tool_grant), tool_grant, adapter.get("configuration", {}).get("model"))
             if response.get("info", {}).get("error"):
                 raise OpenCodeError(str(response["info"]["error"])[:500])
             summary, tools = self._summarize(response)
@@ -97,7 +136,7 @@ class OpenCodeAdapter:
             self._event(events, run_id, "run.failed", "orchestrator", {"error": str(exc)[:500]})
             status = "failed"
         self._write_events(run_dir / "events.jsonl", events)
-        write_json(run_dir / "run.json", {"schema_version": 1, "run": {"id": run_id, "task_id": task["id"], "status": status, "created_at": created_at, "started_at": created_at, "ended_at": _now()}, "bindings": {"adapter": adapter["id"], "workspace": workspace["id"], "policy": policy["id"]}, "events": "events.jsonl", "artifacts": [artifact_name] if artifact_name else [], "adapter_metadata": {"provider": "opencode", "session_id": session_id, "server": self.client.base_url}})
+        write_json(run_dir / "run.json", {"schema_version": 1, "run": {"id": run_id, "task_id": task["id"], "status": status, "created_at": created_at, "started_at": created_at, "ended_at": _now()}, "bindings": {"adapter": adapter["id"], "workspace": workspace["id"], "policy": policy["id"], "tool_grant": tool_grant}, "events": "events.jsonl", "artifacts": [artifact_name] if artifact_name else [], "adapter_metadata": {"provider": "opencode", "session_id": session_id, "server": self.client.base_url}})
         write_json(run_dir / "run-metrics.json", run_metrics(
             run_id, task["id"], "opencode", status, run_dir / "task-context.json", context,
             round((time.monotonic() - started) * 1000), tools, response,
@@ -109,11 +148,21 @@ class OpenCodeAdapter:
         return self.client.fork(resolve_route(self.registry_path, "repositories", repository_id), session_id)["id"]
 
     @staticmethod
-    def _prompt(context: dict[str, Any]) -> str:
+    def _tool_constraints(tool_grant: dict[str, bool]) -> str:
+        if not tool_grant["edit"] and not tool_grant["bash"] and not tool_grant["webfetch"]:
+            return "Operate read-only. Do not edit files, run shell commands, or access the network."
+        return " ".join((
+            "You may edit files." if tool_grant["edit"] else "Do not edit files.",
+            "You may run shell commands." if tool_grant["bash"] else "Do not run shell commands.",
+            "You may access the network." if tool_grant["webfetch"] else "Do not access the network.",
+        ))
+
+    @staticmethod
+    def _prompt(context: dict[str, Any], tool_grant: dict[str, bool]) -> str:
         components = context["routing"]["components"]
         lines = [
             f"Objective: {context['task']['objective']}",
-            "Operate read-only. Do not edit files, run shell commands, or access the network.",
+            OpenCodeAdapter._tool_constraints(tool_grant),
             f"Declared components: {', '.join(component['id'] for component in components)}.",
             f"Read the repository index first: {context['routing']['repository_index']}.",
         ]

@@ -1,5 +1,5 @@
 # ESC AI Execution Framework — Active Roadmap
-**Status:** Capability 17 complete (feature/fix planning and workflow generation)
+**Status:** Capability 18 complete (policy-to-tool-grant enforcement)
 **Goal:** Establish portable execution contracts, prove them through OpenCode, and then
 build the efficiency capabilities one vertical slice at a time.
 
@@ -48,6 +48,7 @@ build the efficiency capabilities one vertical slice at a time.
 | 15 | [Human-assisted manifest construction](../archive/phase-4-manifest-construction.md) | Answers merge into real manifests non-destructively; architecture.profile_ids suggested from PROFILE_DOC_MAP signals or an imported project-profile.yaml; verification/architecture profiles auto-generated; stubs surfaced, never silently treated as complete | Complete |
 | 16 | [Workflow inheritance bootstrap](../archive/phase-5-workflow-inheritance-bootstrap.md) | Idempotent INSTRUCTIONS.md/.esc-ai/workflows generation as the final onboarding step; existing content is never overwritten, only reported | Complete |
 | 17 | [Feature/fix planning and workflow generation](../archive/phase-7-planning-and-workflow-generation.md) | Initiative/task-graph contracts, typed planning questions in place of a live conversation, single- and multi-repository workflow generation validated before any write | Complete |
+| 18 | [Policy-to-tool-grant enforcement](../archive/policy-to-tool-grant-enforcement.md) | OpenCode tool grants actually derived from policy.yaml permissions instead of a hardcoded read-only constant; the grant used is recorded in run.json for audit | Complete |
 
 ## Capability 1 — Initial Scope
 
