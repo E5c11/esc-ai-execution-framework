@@ -1,5 +1,5 @@
 # ESC AI Execution Framework — Active Roadmap
-**Status:** Capability 14 complete (onboarding analysis engine)
+**Status:** Capability 15 complete (human-assisted manifest construction)
 **Goal:** Establish portable execution contracts, prove them through OpenCode, and then
 build the efficiency capabilities one vertical slice at a time.
 
@@ -45,6 +45,7 @@ build the efficiency capabilities one vertical slice at a time.
 | 12 | [Escape AI framework composition](../archive/phase-1-framework-composition.md) | Task context resolves architecture documents without hard-coded checkout paths | Complete |
 | 13 | [Unified system.yaml catalog](../archive/phase-2-unified-system-catalog.md) | One catalog file for repositories, frameworks, ecosystems, orchestrator/UI defaults, and a credential-provider pointer, with explicit migration and actionable repair messages | Complete |
 | 14 | [Onboarding analysis engine](../archive/phase-3-onboarding-analysis-engine.md) | Read-only repository proposal (create/update/preserve/deprecate + semantic questions) via a generalized build-system adapter interface | Complete |
+| 15 | [Human-assisted manifest construction](../archive/phase-4-manifest-construction.md) | Answers merge into real manifests non-destructively; architecture.profile_ids suggested from PROFILE_DOC_MAP signals or an imported project-profile.yaml; verification/architecture profiles auto-generated; stubs surfaced, never silently treated as complete | Complete |
 
 ## Capability 1 — Initial Scope
 

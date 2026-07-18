@@ -52,6 +52,14 @@
         "workflows_directory": {"type": "boolean"},
         "project_profile": {"type": "boolean"}
       }
+    },
+    "profile_id_suggestions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {"type": "string", "minLength": 1},
+        "minItems": 1
+      }
     }
   }
 }

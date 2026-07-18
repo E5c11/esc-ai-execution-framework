@@ -82,3 +82,40 @@ def stub_documents(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     applies to these; callers must not treat them as fully specified.
     """
     return [document for document in documents if document.get("status") == "stub"]
+
+
+def load_profile_doc_map(framework_root: Path) -> dict[str, Any]:
+    """
+    Read the architecture framework's generated profile-doc-map.json: a data-only
+    export of its tools/lookup.py::PROFILE_DOC_MAP/TARGET_DOC_MAP, shaped as
+    {"frameworks": {field: {value: [doc_id, ...]}}, "targets": {target: [doc_id, ...]}}.
+    """
+    path = framework_root / "profile-doc-map.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"Architecture framework profile-doc-map not found: {path}")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Invalid architecture framework profile-doc-map at {path}: {exc}") from exc
+
+
+def suggest_profile_ids(
+    frameworks: dict[str, str], targets: list[str], profile_doc_map: dict[str, Any],
+) -> list[str]:
+    """
+    Suggest architecture.profile_ids from declared/detected frameworks and targets,
+    mirroring the architecture framework's own tools/lookup.py::profile_extra_docs.
+    Order is first-seen, targets before frameworks, deduplicated.
+    """
+    suggested: list[str] = []
+    target_map = profile_doc_map.get("targets", {})
+    for target in targets:
+        for doc_id in target_map.get(target, []):
+            if doc_id not in suggested:
+                suggested.append(doc_id)
+    framework_map = profile_doc_map.get("frameworks", {})
+    for field, value in frameworks.items():
+        for doc_id in framework_map.get(field, {}).get(value, []):
+            if doc_id not in suggested:
+                suggested.append(doc_id)
+    return suggested

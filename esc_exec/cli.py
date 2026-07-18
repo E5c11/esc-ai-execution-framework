@@ -5,9 +5,9 @@ from pathlib import Path
 
 from esc_exec.contracts import CONTRACT_FORMATS, validate_contract, validate_contract_set
 from esc_exec.indexing import generate_indexes, match_components, validate_indexes
-from esc_exec.json_io import write_json
+from esc_exec.json_io import load_json, write_json
 from esc_exec.manifests import generate_gradle_manifests, overall_exit_code, validate_repository
-from esc_exec.onboarding import analyze_repository
+from esc_exec.onboarding import analyze_repository, apply_onboarding_answers
 from esc_exec.opencode_adapter import OpenCodeAdapter, OpenCodeClient, OpenCodeError
 from esc_exec.registry import (
     add_ecosystem, add_route, default_registry_path, migrate_legacy_registry,
@@ -57,11 +57,16 @@ def build_parser() -> argparse.ArgumentParser:
     system_commands = system.add_subparsers(dest="system_command", required=True)
     system_commands.add_parser("migrate")
 
-    repository = subcommands.add_parser("repository", help="Read-only repository onboarding analysis")
+    repository = subcommands.add_parser("repository", help="Repository onboarding analysis and answer application")
     repository_commands = repository.add_subparsers(dest="repository_command", required=True)
     repository_analyze = repository_commands.add_parser("analyze")
     repository_analyze.add_argument("path", type=Path)
     repository_analyze.add_argument("--output", type=Path)
+    repository_answer = repository_commands.add_parser("answer")
+    repository_answer.add_argument("path", type=Path)
+    repository_answer.add_argument("proposal", type=Path)
+    repository_answer.add_argument("answers", type=Path)
+    repository_answer.add_argument("--output", type=Path)
 
     manifest = subcommands.add_parser("manifest", help="Generate and validate repository/component manifests")
     manifest_commands = manifest.add_subparsers(dest="manifest_command", required=True)
@@ -210,9 +215,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print(f"MIGRATED   {legacy_path} -> {migrated}")
         return 0
-    if args.command == "repository":
+    if args.command == "repository" and args.repository_command == "analyze":
         try:
-            proposal = analyze_repository(args.path)
+            proposal = analyze_repository(args.path, registry)
         except (OSError, ValueError) as exc:
             print(f"INVALID    {exc}")
             return 1
@@ -225,6 +230,25 @@ def main(argv: list[str] | None = None) -> int:
             f"digest={proposal['input_digest'][:12]} questions={len(proposal['semantic_questions'])}"
         )
         print(f"  files: {actions}")
+        return 0
+    if args.command == "repository" and args.repository_command == "answer":
+        try:
+            proposal = load_json(args.proposal)
+            answers = load_json(args.answers)
+            result = apply_onboarding_answers(args.path, proposal, answers, registry)
+        except (OSError, ValueError) as exc:
+            print(f"INVALID    {exc}")
+            return 1
+        if args.output:
+            write_json(args.output, result)
+            print(f"GENERATED  {args.output}")
+        print(f"APPLIED    {len(result['written'])} file(s) written")
+        if result["empty_profile_id_suggestions"]:
+            print(f"  empty profile_id suggestions: {', '.join(result['empty_profile_id_suggestions'])}")
+        if result["stub_documents"]:
+            print(f"  stub documents: {result['stub_documents']}")
+        if result["missing_documents"]:
+            print(f"  missing documents: {result['missing_documents']}")
         return 0
     if args.command == "route":
         category = {

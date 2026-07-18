@@ -5,8 +5,10 @@ import unittest
 
 from esc_exec.architecture_lookup import (
     load_architecture_index,
+    load_profile_doc_map,
     resolve_architecture_docs,
     stub_documents,
+    suggest_profile_ids,
 )
 
 
@@ -92,6 +94,44 @@ class ArchitectureLookupTests(unittest.TestCase):
         with TemporaryDirectory() as temp:
             with self.assertRaises(FileNotFoundError):
                 load_architecture_index(Path(temp))
+
+    def test_suggest_profile_ids_matches_frameworks_and_targets(self):
+        profile_doc_map = {
+            "frameworks": {"network": {"ktor": ["PLAT-MOB-HTTP"]}},
+            "targets": {"ios": ["PLAT-MOB-KMP-IOS"]},
+        }
+        suggested = suggest_profile_ids({"network": "ktor"}, ["ios"], profile_doc_map)
+        self.assertEqual(["PLAT-MOB-KMP-IOS", "PLAT-MOB-HTTP"], suggested)
+
+    def test_suggest_profile_ids_deduplicates_and_preserves_first_seen_order(self):
+        profile_doc_map = {
+            "frameworks": {
+                "network": {"ktor": ["PLAT-MOB-HTTP"]},
+                "cloud": {"firebase": ["PLAT-MOB-HTTP", "PLAT-MOB-FIREBASE"]},
+            },
+            "targets": {},
+        }
+        suggested = suggest_profile_ids({"network": "ktor", "cloud": "firebase"}, [], profile_doc_map)
+        self.assertEqual(["PLAT-MOB-HTTP", "PLAT-MOB-FIREBASE"], suggested)
+
+    def test_suggest_profile_ids_unmatched_signals_yields_empty(self):
+        profile_doc_map = {"frameworks": {"network": {"ktor": ["PLAT-MOB-HTTP"]}}, "targets": {}}
+        self.assertEqual([], suggest_profile_ids({"network": "unknown-lib"}, [], profile_doc_map))
+
+    def test_load_profile_doc_map_reads_a_real_file(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "profile-doc-map.json").write_text(json.dumps({
+                "frameworks": {"network": {"ktor": ["PLAT-MOB-HTTP"]}},
+                "targets": {},
+            }), encoding="utf-8")
+            data = load_profile_doc_map(root)
+            self.assertEqual(["PLAT-MOB-HTTP"], data["frameworks"]["network"]["ktor"])
+
+    def test_load_profile_doc_map_missing_file_raises(self):
+        with TemporaryDirectory() as temp:
+            with self.assertRaises(FileNotFoundError):
+                load_profile_doc_map(Path(temp))
 
 
 if __name__ == "__main__":
