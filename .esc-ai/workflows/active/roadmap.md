@@ -1,5 +1,5 @@
 # ESC AI Execution Framework — Active Roadmap
-**Status:** Capability 12 complete (Escape AI framework composition)
+**Status:** Capability 13 complete (unified system.yaml catalog)
 **Goal:** Establish portable execution contracts, prove them through OpenCode, and then
 build the efficiency capabilities one vertical slice at a time.
 
@@ -43,6 +43,7 @@ build the efficiency capabilities one vertical slice at a time.
 | 10 | [Dependency graph and impact analysis](../archive/dependency-impact-analysis.md) | Generated consumer relationships drive appropriate verification scope | Complete |
 | 11 | [Execution-efficiency measurement](../archive/execution-efficiency-measurement.md) | Evidence for token, tool-call, elapsed-time, and rework improvements | Complete — provider cohort pending |
 | 12 | [Escape AI framework composition](../archive/phase-1-framework-composition.md) | Task context resolves architecture documents without hard-coded checkout paths | Complete |
+| 13 | [Unified system.yaml catalog](../archive/phase-2-unified-system-catalog.md) | One catalog file for repositories, frameworks, ecosystems, orchestrator/UI defaults, and a credential-provider pointer, with explicit migration and actionable repair messages | Complete |
 
 ## Capability 1 — Initial Scope
 

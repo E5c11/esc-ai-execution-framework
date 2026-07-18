@@ -1,9 +1,15 @@
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from esc_exec.model import ManifestState
-from esc_exec.registry import RENAMED_FRAMEWORK_IDS, add_ecosystem, add_route, resolve_route, validate_registry
+from esc_exec.registry import (
+    RENAMED_FRAMEWORK_IDS, add_ecosystem, add_route, default_registry_path,
+    migrate_legacy_registry, resolve_route, validate_registry,
+)
+from esc_exec.yaml_io import load_yaml, write_yaml
 
 
 class RegistryTests(unittest.TestCase):
@@ -78,6 +84,74 @@ class RegistryTests(unittest.TestCase):
             result = validate_registry(registry)
             self.assertEqual(ManifestState.INVALID, result.state)
             self.assertTrue(any("references unregistered repository: ampm-mobile" in message for message in result.messages))
+
+
+    def test_stale_route_message_includes_repair_command(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "repositories.yaml"
+            target = root / "repo"
+            target.mkdir()
+            add_route(registry, "repositories", "sample", target)
+            target.rmdir()
+            result = validate_registry(registry)
+            self.assertTrue(any("Run: esc-exec route add repository sample" in message for message in result.messages))
+
+    def test_default_registry_path_uses_system_yaml(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("sys.platform", "linux"):
+                with TemporaryDirectory() as temp:
+                    os.environ["XDG_CONFIG_HOME"] = temp
+                    self.assertEqual(Path(temp) / "esc-ai" / "system.yaml", default_registry_path())
+
+    def test_migrate_legacy_registry_migrates_existing_file(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            legacy = root / "repositories.yaml"
+            write_yaml(legacy, {"schema_version": 1, "repositories": {"sample": {"path": "/tmp/sample"}}, "frameworks": {}})
+            new_path = root / "system.yaml"
+            result = migrate_legacy_registry(new_path)
+            self.assertEqual(new_path, result)
+            self.assertEqual({"path": "/tmp/sample"}, load_yaml(new_path)["repositories"]["sample"])
+
+    def test_migrate_legacy_registry_is_noop_when_new_path_exists(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            legacy = root / "repositories.yaml"
+            write_yaml(legacy, {"schema_version": 1, "repositories": {}, "frameworks": {}})
+            new_path = root / "system.yaml"
+            write_yaml(new_path, {"schema_version": 1, "repositories": {}, "frameworks": {}})
+            self.assertIsNone(migrate_legacy_registry(new_path))
+
+    def test_migrate_legacy_registry_is_noop_when_no_legacy_file(self):
+        with TemporaryDirectory() as temp:
+            self.assertIsNone(migrate_legacy_registry(Path(temp) / "system.yaml"))
+
+    def test_orchestrator_ui_and_credentials_sections_are_valid(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            write_yaml(registry, {
+                "schema_version": 1,
+                "repositories": {},
+                "frameworks": {},
+                "orchestrator": {"endpoint": "http://127.0.0.1:8042"},
+                "ui": {"theme": "dark"},
+                "credentials": {"provider": "env"},
+            })
+            self.assertEqual(ManifestState.VALID, validate_registry(registry).state)
+
+    def test_unknown_field_inside_credentials_is_invalid(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            write_yaml(registry, {
+                "schema_version": 1,
+                "repositories": {},
+                "frameworks": {},
+                "credentials": {"provider": "env", "secret": "should-not-be-here"},
+            })
+            result = validate_registry(registry)
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("credentials must be a mapping" in message for message in result.messages))
 
 
 if __name__ == "__main__":

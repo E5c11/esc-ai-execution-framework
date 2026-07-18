@@ -65,11 +65,14 @@ competing local conventions in consuming repositories.
 
 Absolute checkout paths are machine-specific and must not be committed to consuming
 repositories. A machine-local route registry resolves stable repository and framework
-IDs to absolute paths. Its provisional Linux location is:
+IDs to absolute paths. Its Linux location is:
 
 ```text
-~/.config/esc-ai/repositories.yaml
+~/.config/esc-ai/system.yaml
 ```
+
+A legacy `repositories.yaml` at the same location migrates explicitly via
+`esc-exec system migrate`; nothing auto-migrates it as a side effect of another command.
 
 The orchestrator must flag missing or stale routes and request registration rather than
 silently searching arbitrary parent directories. Repository and framework manifests

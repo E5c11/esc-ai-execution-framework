@@ -7,7 +7,10 @@ from esc_exec.contracts import CONTRACT_FORMATS, validate_contract, validate_con
 from esc_exec.indexing import generate_indexes, match_components, validate_indexes
 from esc_exec.manifests import generate_gradle_manifests, overall_exit_code, validate_repository
 from esc_exec.opencode_adapter import OpenCodeAdapter, OpenCodeClient, OpenCodeError
-from esc_exec.registry import add_ecosystem, add_route, default_registry_path, read_registry, resolve_route, validate_registry
+from esc_exec.registry import (
+    add_ecosystem, add_route, default_registry_path, migrate_legacy_registry,
+    read_registry, resolve_route, validate_registry,
+)
 from esc_exec.reporting import summarize_junit
 from esc_exec.task_context import build_task_context, build_verification_plan, generate_gradle_verification_profile
 from esc_exec.architecture import check_architecture, generate_architecture_profile
@@ -47,6 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
     route_ecosystem_add = route_ecosystem_commands.add_parser("add")
     route_ecosystem_add.add_argument("name")
     route_ecosystem_add.add_argument("repositories", nargs="+")
+
+    system = subcommands.add_parser("system", help="Manage the machine-local system catalog itself")
+    system_commands = system.add_subparsers(dest="system_command", required=True)
+    system_commands.add_parser("migrate")
 
     manifest = subcommands.add_parser("manifest", help="Generate and validate repository/component manifests")
     manifest_commands = manifest.add_subparsers(dest="manifest_command", required=True)
@@ -184,6 +191,17 @@ def _resolve_repository(value: str, registry: Path) -> Path:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     registry = _registry_path(args.registry)
+    if args.command == "system":
+        legacy_path = registry.parent / "repositories.yaml"
+        if registry.exists():
+            print(f"NO ACTION  {registry} already exists")
+            return 0
+        migrated = migrate_legacy_registry(registry)
+        if migrated is None:
+            print(f"NO ACTION  no legacy {legacy_path} found")
+            return 0
+        print(f"MIGRATED   {legacy_path} -> {migrated}")
+        return 0
     if args.command == "route":
         category = {
             "repository": "repositories",

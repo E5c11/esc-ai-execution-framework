@@ -16,10 +16,20 @@ esc-exec route add repository ampm-backend /path/to/ampm-backend
 esc-exec route validate
 ```
 
-Linux defaults to `~/.config/esc-ai/repositories.yaml`. macOS uses
-`~/Library/Application Support/esc-ai/repositories.yaml`; Windows uses the `APPDATA`
+Linux defaults to `~/.config/esc-ai/system.yaml`. macOS uses
+`~/Library/Application Support/esc-ai/system.yaml`; Windows uses the `APPDATA`
 directory. `ESC_AI_REGISTRY` or the CLI's `--registry` option may override the location
 for CI, tests, or isolated environments.
+
+If you have an existing `repositories.yaml` (the catalog's previous filename) at that
+same location, migrate it explicitly rather than recreating routes by hand:
+
+```bash
+esc-exec system migrate
+```
+
+This is a no-op if `system.yaml` already exists or if there's no legacy file to
+migrate — it never runs automatically as a side effect of another command.
 
 Routes are local configuration, contain no secrets, and must not be committed into a
 consuming repository.

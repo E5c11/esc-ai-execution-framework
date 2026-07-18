@@ -13,6 +13,22 @@ properties:
     $ref: "#/$defs/routes"
   ecosystems:
     $ref: "#/$defs/ecosystems"
+  orchestrator:
+    type: object
+    additionalProperties: false
+    properties:
+      endpoint: {type: string, minLength: 1}
+  ui:
+    type: object
+    additionalProperties: true
+  credentials:
+    type: object
+    additionalProperties: false
+    properties:
+      # A pointer to which credential provider is configured (e.g. "env", a
+      # secrets-manager name) -- never an actual secret value. Real secrets belong in
+      # the environment or the named provider, not in this file.
+      provider: {type: string, minLength: 1}
 $defs:
   routes:
     type: object
