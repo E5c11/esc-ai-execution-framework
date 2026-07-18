@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from esc_exec.model import ManifestState
-from esc_exec.registry import add_route, resolve_route, validate_registry
+from esc_exec.registry import RENAMED_FRAMEWORK_IDS, add_route, resolve_route, validate_registry
 
 
 class RegistryTests(unittest.TestCase):
@@ -32,6 +32,29 @@ class RegistryTests(unittest.TestCase):
             registry = Path(temp) / "repositories.yaml"
             with self.assertRaisesRegex(KeyError, "esc-exec route add repository sample"):
                 resolve_route(registry, "repositories", "sample")
+
+    def test_resolving_renamed_framework_reports_migration(self):
+        old_id, new_id = next(iter(RENAMED_FRAMEWORK_IDS.items()))
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "repositories.yaml"
+            framework = root / "framework"
+            framework.mkdir()
+            add_route(registry, "frameworks", new_id, framework)
+            with self.assertRaisesRegex(KeyError, f"renamed to `{new_id}`"):
+                resolve_route(registry, "frameworks", old_id)
+
+    def test_registered_renamed_framework_id_is_stale(self):
+        old_id = next(iter(RENAMED_FRAMEWORK_IDS))
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "repositories.yaml"
+            framework = root / "framework"
+            framework.mkdir()
+            add_route(registry, "frameworks", old_id, framework)
+            result = validate_registry(registry)
+            self.assertEqual(ManifestState.STALE, result.state)
+            self.assertTrue(any("renamed framework ID" in message for message in result.messages))
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from typing import Any
 
 from esc_exec.gradle import component_structure, detect_gradle_repository
 from esc_exec.model import ManifestState, ValidationResult
+from esc_exec.registry import RENAMED_FRAMEWORK_IDS
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
@@ -104,6 +105,20 @@ def validate_repository(root: Path) -> list[ValidationResult]:
         str(repository_path),
         repo_messages,
     ))
+
+    frameworks = repository.get("frameworks")
+    if isinstance(frameworks, dict):
+        renamed = sorted(fid for fid in frameworks if fid in RENAMED_FRAMEWORK_IDS)
+        if renamed and results[0].state == ManifestState.VALID:
+            results[0] = ValidationResult(
+                ManifestState.STALE,
+                str(repository_path),
+                [
+                    f"frameworks references renamed framework ID `{fid}`; "
+                    f"update to `{RENAMED_FRAMEWORK_IDS[fid]}`."
+                    for fid in renamed
+                ],
+            )
 
     declared_paths: set[str] = set()
     for item in components:

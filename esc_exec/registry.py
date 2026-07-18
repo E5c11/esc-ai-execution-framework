@@ -9,6 +9,14 @@ from esc_exec.model import ManifestState, ValidationResult
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
+# Framework IDs that were renamed after routes/manifests may already reference the old
+# name. Kept so a stale reference gets an exact repair action instead of either a
+# generic "not registered" error or a silently tolerated second identity.
+RENAMED_FRAMEWORK_IDS: dict[str, str] = {
+    "esc-ai-framework": "esc-ai-architecture-framework",
+}
+
+
 def default_registry_path() -> Path:
     override = os.environ.get("ESC_AI_REGISTRY")
     if override:
@@ -42,6 +50,13 @@ def resolve_route(path: Path, category: str, route_id: str) -> Path:
     data = read_registry(path)
     route = data.get(category, {}).get(route_id)
     if not route:
+        if category == "frameworks" and route_id in RENAMED_FRAMEWORK_IDS:
+            renamed = RENAMED_FRAMEWORK_IDS[route_id]
+            if renamed in data.get(category, {}):
+                raise KeyError(
+                    f"Framework `{route_id}` was renamed to `{renamed}`. "
+                    f"Update the reference (manifest `frameworks` field or route id) to `{renamed}`."
+                )
         kind = {"repositories": "repository", "frameworks": "framework"}[category]
         raise KeyError(
             f"{kind.capitalize()} route `{route_id}` is not registered. "
@@ -85,6 +100,12 @@ def validate_registry(path: Path) -> ValidationResult:
             elif not Path(route["path"]).expanduser().is_dir():
                 stale = True
                 messages.append(f"{category}.{route_id} points to missing directory: {route['path']}")
+            if category == "frameworks" and route_id in RENAMED_FRAMEWORK_IDS:
+                stale = True
+                messages.append(
+                    f"frameworks.{route_id} uses a renamed framework ID; "
+                    f"re-register it as `{RENAMED_FRAMEWORK_IDS[route_id]}`."
+                )
     if any("must" in message or message.startswith("unknown") for message in messages):
         return ValidationResult(ManifestState.INVALID, str(path), messages)
     if stale:

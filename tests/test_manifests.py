@@ -5,6 +5,7 @@ import unittest
 
 from esc_exec.manifests import generate_gradle_manifests, validate_repository
 from esc_exec.model import ManifestState
+from esc_exec.registry import RENAMED_FRAMEWORK_IDS
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
@@ -55,6 +56,17 @@ class ManifestTests(unittest.TestCase):
         write_yaml(repository_path, repository)
         results = validate_repository(self.root)
         self.assertEqual(ManifestState.STALE, results[0].state)
+
+    def test_renamed_framework_reference_is_stale(self):
+        generate_gradle_manifests(self.root)
+        repository_path = self.root / "esc-execution.yaml"
+        repository = load_yaml(repository_path)
+        old_id = next(iter(RENAMED_FRAMEWORK_IDS))
+        repository["frameworks"] = {old_id: "1.0"}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertEqual(ManifestState.STALE, results[0].state)
+        self.assertTrue(any("renamed framework ID" in message for message in results[0].messages))
 
     def test_schema_documents_are_valid_yaml_mappings(self):
         schemas = Path(__file__).parents[1] / "schemas"
