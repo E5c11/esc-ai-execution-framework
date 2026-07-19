@@ -1,0 +1,9 @@
+schema_version: 1
+adapter:
+  id: claude-code-local
+  kind: agent-runtime
+  provider: claude-code
+  capabilities: [sessions, events, tools, permissions]
+  configuration:
+    transport: subprocess
+    model: claude-sonnet-5
