@@ -77,6 +77,59 @@ def add_ecosystem(path: Path, name: str, repository_ids: list[str]) -> None:
     write_yaml(path, data)
 
 
+# The providers currently offered. Extensible later (see native-cli-provider-
+# adapters.md's community-adapter goal) -- not a hard ceiling, just today's known
+# set, so an unrecognized name fails loudly instead of being silently accepted and
+# then failing later at task-run time.
+#
+# gemini deliberately excluded as of 2026-07-19 -- see
+# plan/reintroduce-gemini-provider.md. Not removed because nothing works for it:
+# Antigravity's subscription billing is confirmed real, but three live attempts all
+# failed to reliably execute a given headless task. Removed for picker simplicity
+# (nothing offered doesn't work), which also means the separately-working, unrelated
+# OpenCode API-key route for gemini isn't offered right now either -- a deliberate
+# trade, not a technical necessity; see that doc before re-adding either route.
+KNOWN_PROVIDERS: tuple[str, ...] = ("claude", "openai")
+
+# Claude (ClaudeCodeAdapter) and OpenAI (CodexAdapter, via `codex exec`) both have a
+# verified first-party subscription-route adapter -- see native-cli-provider-
+# adapters.md.
+SUBSCRIPTION_CAPABLE_PROVIDERS: tuple[str, ...] = ("claude", "openai")
+
+PROVIDER_ROUTES: tuple[str, ...] = ("subscription", "api-key")
+
+
+def set_provider(path: Path, provider_id: str, route: str) -> None:
+    """
+    Record a provider connection and make it the active one -- lazy, per-provider, one
+    at a time (see native-cli-provider-adapters.md open question 5: asked once, per
+    provider, not a global upfront wizard). There is no per-task provider override yet;
+    `active` is the whole model until that's designed.
+    """
+    if provider_id not in KNOWN_PROVIDERS:
+        raise ValueError(f"unknown provider `{provider_id}`; known providers: {', '.join(KNOWN_PROVIDERS)}")
+    if route not in PROVIDER_ROUTES:
+        raise ValueError(f"route must be one of {PROVIDER_ROUTES}")
+    if route == "subscription" and provider_id not in SUBSCRIPTION_CAPABLE_PROVIDERS:
+        raise ValueError(f"`{provider_id}` has no subscription-route adapter yet; use route=api-key")
+    data = read_registry(path)
+    data.setdefault("schema_version", 1)
+    providers = data.setdefault("providers", {})
+    providers[provider_id] = {"route": route}
+    providers["active"] = provider_id
+    write_yaml(path, data)
+
+
+def active_provider(path: Path) -> dict[str, Any] | None:
+    """None means no provider has been connected yet -- callers must not invent a
+    default; see escape_ai_cli.py's lazy first-use prompt."""
+    providers = read_registry(path).get("providers", {})
+    active_id = providers.get("active")
+    if not active_id or active_id not in providers:
+        return None
+    return {"id": active_id, **providers[active_id]}
+
+
 def resolve_route(path: Path, category: str, route_id: str) -> Path:
     data = read_registry(path)
     route = data.get(category, {}).get(route_id)
@@ -118,7 +171,7 @@ def validate_registry(path: Path) -> ValidationResult:
         messages.append("schema_version must be 1")
     known_top_level = {
         "schema_version", "repositories", "frameworks", "ecosystems",
-        "orchestrator", "ui", "credentials",
+        "orchestrator", "ui", "credentials", "providers",
     }
     unknown = sorted(set(data) - known_top_level)
     for key in unknown:
@@ -168,6 +221,23 @@ def validate_registry(path: Path) -> ValidationResult:
             not isinstance(credentials["provider"], str) or not credentials["provider"].strip()
         ):
             messages.append("credentials.provider must be a non-empty string naming the provider")
+    providers = data.get("providers")
+    if providers is not None:
+        if not isinstance(providers, dict):
+            messages.append("providers must be a mapping")
+        else:
+            active = providers.get("active")
+            for provider_id, config in providers.items():
+                if provider_id == "active":
+                    continue
+                if provider_id not in KNOWN_PROVIDERS:
+                    messages.append(f"providers.{provider_id} is not a known provider ({', '.join(KNOWN_PROVIDERS)})")
+                if not isinstance(config, dict) or config.get("route") not in PROVIDER_ROUTES:
+                    messages.append(f"providers.{provider_id}.route must be one of {PROVIDER_ROUTES}")
+                elif config["route"] == "subscription" and provider_id not in SUBSCRIPTION_CAPABLE_PROVIDERS:
+                    messages.append(f"providers.{provider_id} has no subscription-route adapter; route must be api-key")
+            if active is not None and active not in providers:
+                messages.append(f"providers.active references unconfigured provider: {active}")
     ecosystems = data.get("ecosystems", {})
     if not isinstance(ecosystems, dict):
         messages.append("ecosystems must be a mapping")
@@ -185,6 +255,8 @@ def validate_registry(path: Path) -> ValidationResult:
         "must" in message
         or message.startswith("unknown")
         or "references unregistered repository" in message
+        or "is not a known provider" in message
+        or "references unconfigured provider" in message
         for message in messages
     ):
         return ValidationResult(ManifestState.INVALID, str(path), messages)

@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 from esc_exec.model import ManifestState
 from esc_exec.registry import (
-    RENAMED_FRAMEWORK_IDS, add_ecosystem, add_route, default_registry_path,
-    migrate_legacy_registry, resolve_route, validate_registry,
+    RENAMED_FRAMEWORK_IDS, active_provider, add_ecosystem, add_route, default_registry_path,
+    migrate_legacy_registry, resolve_route, set_provider, validate_registry,
 )
 from esc_exec.yaml_io import load_yaml, write_yaml
 
@@ -152,6 +152,75 @@ class RegistryTests(unittest.TestCase):
             result = validate_registry(registry)
             self.assertEqual(ManifestState.INVALID, result.state)
             self.assertTrue(any("credentials must be a mapping" in message for message in result.messages))
+
+    def test_no_provider_configured_returns_none(self):
+        with TemporaryDirectory() as temp:
+            self.assertIsNone(active_provider(Path(temp) / "system.yaml"))
+
+    def test_set_provider_makes_it_active(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            set_provider(registry, "claude", "subscription")
+            self.assertEqual({"id": "claude", "route": "subscription"}, active_provider(registry))
+            self.assertEqual(ManifestState.VALID, validate_registry(registry).state)
+
+    def test_setting_a_second_provider_switches_active(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            set_provider(registry, "claude", "subscription")
+            set_provider(registry, "openai", "api-key")
+            self.assertEqual({"id": "openai", "route": "api-key"}, active_provider(registry))
+            # the previously-active provider stays connected, just no longer active
+            data = load_yaml(registry)
+            self.assertEqual({"route": "subscription"}, data["providers"]["claude"])
+
+    def test_unknown_provider_name_is_rejected(self):
+        with TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ValueError, "unknown provider"):
+                set_provider(Path(temp) / "system.yaml", "mistral", "api-key")
+
+    def test_subscription_route_rejected_for_non_subscription_capable_provider(self):
+        # No real provider is currently known-but-not-subscription-capable (gemini
+        # was removed from KNOWN_PROVIDERS entirely -- see
+        # plan/reintroduce-gemini-provider.md), so this exercises the branch via a
+        # synthetic provider rather than skipping coverage of it.
+        with TemporaryDirectory() as temp:
+            with patch("esc_exec.registry.KNOWN_PROVIDERS", ("acme",)):
+                with self.assertRaisesRegex(ValueError, "no subscription-route adapter"):
+                    set_provider(Path(temp) / "system.yaml", "acme", "subscription")
+
+    def test_invalid_route_value_in_file_is_invalid(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            write_yaml(registry, {
+                "schema_version": 1, "repositories": {}, "frameworks": {},
+                "providers": {"claude": {"route": "bearer-token"}, "active": "claude"},
+            })
+            result = validate_registry(registry)
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("providers.claude.route must be one of" in message for message in result.messages))
+
+    def test_subscription_route_for_non_capable_provider_in_file_is_invalid(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            write_yaml(registry, {
+                "schema_version": 1, "repositories": {}, "frameworks": {},
+                "providers": {"gemini": {"route": "subscription"}, "active": "gemini"},
+            })
+            result = validate_registry(registry)
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("no subscription-route adapter" in message for message in result.messages))
+
+    def test_active_pointing_at_unconfigured_provider_is_invalid(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            write_yaml(registry, {
+                "schema_version": 1, "repositories": {}, "frameworks": {},
+                "providers": {"active": "claude"},
+            })
+            result = validate_registry(registry)
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("references unconfigured provider: claude" in message for message in result.messages))
 
 
 if __name__ == "__main__":
