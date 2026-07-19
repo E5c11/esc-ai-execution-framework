@@ -100,7 +100,7 @@ def run_metrics(
         "execution": {
             "elapsed_ms": max(elapsed_ms, 0),
             "tool_calls": len(tools),
-            "read_calls": sum(tool.get("tool") == "read" for tool in tools),
+            "read_calls": sum(str(tool.get("tool")).lower() == "read" for tool in tools),
             "agent_messages": 1 if status == "succeeded" else 0,
             "rework_events": max(rework_events, 0),
         },
