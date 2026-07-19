@@ -10,7 +10,7 @@ from esc_exec.architecture_lookup import (
     load_architecture_index, load_profile_doc_map, resolve_architecture_docs,
     stub_documents, suggest_profile_ids,
 )
-from esc_exec.dependencies import generate_dependency_graph
+from esc_exec.dependencies import detect_gradle_frameworks_and_targets, generate_dependency_graph
 from esc_exec.indexing import generate_indexes
 from esc_exec.manifests import (
     component_manifest_path, component_manifest_relative_path, generate_gradle_manifests,
@@ -105,6 +105,16 @@ def _repository_file_entry(root: Path, repository_id: str, components: list[tupl
     }
 
 
+def _purpose_question(component_id: str) -> dict[str, Any]:
+    return {
+        "component_id": component_id, "field": "purpose",
+        "prompt": (
+            f"What is the purpose of component `{component_id}`?\n"
+            '    Example: "Handles user authentication and session tokens"'
+        ),
+    }
+
+
 def _component_file_entries(
     root: Path, components: list[tuple[str, Path]], adapter,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -119,10 +129,7 @@ def _component_file_entries(
                 "action": "create",
                 "evidence": f"No manifest found for detected component `{component_id}` at `{relative}`.",
             })
-            questions.append({
-                "component_id": component_id, "field": "purpose",
-                "prompt": f"What is the purpose of component `{component_id}`?",
-            })
+            questions.append(_purpose_question(component_id))
             continue
         existing = load_yaml(manifest_path)
         component = existing.get("component", {})
@@ -143,10 +150,7 @@ def _component_file_entries(
             })
         purpose = component.get("purpose")
         if not isinstance(purpose, str) or not purpose.strip():
-            questions.append({
-                "component_id": component_id, "field": "purpose",
-                "prompt": f"What is the purpose of component `{component_id}`?",
-            })
+            questions.append(_purpose_question(component_id))
     return entries, questions
 
 
@@ -174,6 +178,10 @@ def _architecture_signals(
     For each component lacking an already-authored architecture.profile_ids:
     - if an imported project profile resolves a non-empty suggestion, offer it
       (no question needed -- the repository-level profile already answers this);
+    - otherwise, try Tier 1 static detection (see
+      plan/onboarding-answer-detection-and-suggestion.md) against the component's own
+      build file -- if that resolves a non-empty suggestion, offer it, no question
+      needed either;
     - otherwise, if the architecture framework is resolvable at all, ask one bounded
       question for the frameworks/targets info needed to suggest profile_ids;
     - if the architecture framework can't be resolved, neither suggest nor ask --
@@ -199,12 +207,23 @@ def _architecture_signals(
             continue
         if profile_doc_map is None:
             continue
+        detected_frameworks, detected_targets = detect_gradle_frameworks_and_targets(
+            root / relative / "build.gradle.kts"
+        )
+        detected_suggestion = (
+            suggest_profile_ids(detected_frameworks, detected_targets, profile_doc_map)
+            if detected_frameworks or detected_targets
+            else []
+        )
+        if detected_suggestion:
+            suggestions[component_id] = detected_suggestion
+            continue
         questions.append({
             "component_id": component_id, "field": "frameworks",
             "prompt": (
-                f"Which frameworks does `{component_id}` use (field:value pairs such as "
-                "network:ktor) and which targets (e.g. ios), if any? Used to suggest "
-                "architecture.profile_ids."
+                f"Which frameworks does `{component_id}` use? (optional -- press Enter to skip)\n"
+                "    Format: name:value pairs, comma-separated. Used to suggest architecture.profile_ids.\n"
+                "    Example: network:ktor, database:room, di:hilt"
             ),
         })
     return suggestions, questions

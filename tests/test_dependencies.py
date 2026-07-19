@@ -4,7 +4,8 @@ import unittest
 
 from esc_exec.contracts import validate_contract
 from esc_exec.dependencies import (
-    _project_path_to_accessor, analyze_impact, generate_dependency_graph, validate_dependency_graph,
+    _project_path_to_accessor, analyze_impact, detect_gradle_frameworks_and_targets,
+    generate_dependency_graph, validate_dependency_graph,
 )
 from esc_exec.indexing import generate_indexes
 from esc_exec.manifests import (
@@ -151,3 +152,72 @@ class TypesafeProjectAccessorTests(unittest.TestCase):
             output = root / "impact.json"
             impact = analyze_impact(root, ["core-common"], output)
             self.assertEqual(["app-host"], impact["direct_consumers"])
+
+
+class GradleFrameworkDetectionTests(unittest.TestCase):
+    def test_missing_build_file_detects_nothing(self):
+        with TemporaryDirectory() as temp:
+            frameworks, targets = detect_gradle_frameworks_and_targets(Path(temp) / "build.gradle.kts")
+            self.assertEqual({}, frameworks)
+            self.assertEqual([], targets)
+
+    def test_detects_known_network_and_database_frameworks(self):
+        with TemporaryDirectory() as temp:
+            build_path = Path(temp) / "build.gradle.kts"
+            build_path.write_text(
+                'dependencies {\n'
+                '    implementation("io.ktor:ktor-client-core:2.3.0")\n'
+                '    implementation("androidx.room:room-runtime:2.6.1")\n'
+                '}\n',
+                encoding="utf-8",
+            )
+            frameworks, targets = detect_gradle_frameworks_and_targets(build_path)
+            self.assertEqual({"network": "ktor", "database": "room"}, frameworks)
+            self.assertEqual([], targets)
+
+    def test_unrecognized_coordinate_is_not_reported(self):
+        with TemporaryDirectory() as temp:
+            build_path = Path(temp) / "build.gradle.kts"
+            build_path.write_text(
+                'dependencies {\n    implementation("com.example.totally:unmapped-lib:1.0")\n}\n',
+                encoding="utf-8",
+            )
+            frameworks, _ = detect_gradle_frameworks_and_targets(build_path)
+            self.assertEqual({}, frameworks)
+
+    def test_test_scoped_dependency_is_excluded(self):
+        with TemporaryDirectory() as temp:
+            build_path = Path(temp) / "build.gradle.kts"
+            build_path.write_text(
+                'dependencies {\n    testImplementation("io.ktor:ktor-client-mock:2.3.0")\n}\n',
+                encoding="utf-8",
+            )
+            frameworks, _ = detect_gradle_frameworks_and_targets(build_path)
+            self.assertEqual({}, frameworks)
+
+    def test_project_dependency_is_never_mistaken_for_external(self):
+        with TemporaryDirectory() as temp:
+            build_path = Path(temp) / "build.gradle.kts"
+            build_path.write_text(
+                'dependencies {\n    implementation(project(":core:common"))\n    implementation(projects.core.common)\n}\n',
+                encoding="utf-8",
+            )
+            frameworks, _ = detect_gradle_frameworks_and_targets(build_path)
+            self.assertEqual({}, frameworks)
+
+    def test_detects_kmp_ios_target(self):
+        with TemporaryDirectory() as temp:
+            build_path = Path(temp) / "build.gradle.kts"
+            build_path.write_text(
+                'kotlin {\n    android()\n    ios()\n    jvm()\n}\n',
+                encoding="utf-8",
+            )
+            _, targets = detect_gradle_frameworks_and_targets(build_path)
+            self.assertEqual(["ios"], targets)
+
+    def test_no_ios_target_detects_no_targets(self):
+        with TemporaryDirectory() as temp:
+            build_path = Path(temp) / "build.gradle.kts"
+            build_path.write_text('kotlin {\n    android()\n    jvm()\n}\n', encoding="utf-8")
+            _, targets = detect_gradle_frameworks_and_targets(build_path)
+            self.assertEqual([], targets)

@@ -147,6 +147,22 @@ class OnboardingTests(unittest.TestCase):
         self.assertEqual({"core-api", "feature"}, frameworks_questions)
         self.assertEqual({}, proposal["profile_id_suggestions"])
 
+    def test_detected_gradle_dependency_suggests_and_skips_the_question_tier1(self):
+        # No context/project-profile.yaml, no explicit answer -- Tier 1 static
+        # detection (plan/onboarding-answer-detection-and-suggestion.md) should find
+        # `core-api`'s real dependency and skip asking it, while `feature` (empty
+        # build.gradle.kts, per setUp) still gets asked normally.
+        (self.root / "core/api/build.gradle.kts").write_text(
+            'dependencies {\n    implementation("io.ktor:ktor-client-core:2.3.0")\n}\n', encoding="utf-8",
+        )
+        registry = self._register_architecture_framework(
+            [], profile_doc_map={"frameworks": {"network": {"ktor": ["PLAT-MOB-HTTP"]}}, "targets": {}},
+        )
+        proposal = analyze_repository(self.root, registry)
+        frameworks_questions = {q["component_id"] for q in proposal["semantic_questions"] if q["field"] == "frameworks"}
+        self.assertEqual({"feature"}, frameworks_questions)
+        self.assertEqual({"core-api": ["PLAT-MOB-HTTP"]}, proposal["profile_id_suggestions"])
+
     def test_existing_project_profile_suggests_and_skips_the_question(self):
         (self.root / "context").mkdir()
         write_yaml(self.root / "context/project-profile.yaml", {

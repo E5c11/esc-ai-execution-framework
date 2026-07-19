@@ -22,6 +22,73 @@ PROJECT_DEPENDENCY = re.compile(
 TYPESAFE_PROJECT_DEPENDENCY = re.compile(
     r"(?P<configuration>[A-Za-z][A-Za-z0-9]*)\s*\(\s*projects(?P<accessor>(?:\.[A-Za-z][A-Za-z0-9]*)+)\s*\)"
 )
+# External (non-project) Gradle Kotlin DSL dependency coordinates, e.g.
+# implementation("io.ktor:ktor-client-core:2.3.0"). Deliberately requires at least one
+# non-empty segment before the first colon, which `project(":core:common")`'s leading
+# `:` can never satisfy -- so this and PROJECT_DEPENDENCY never double-match the same
+# call, without needing to special-case the `project(` wrapper.
+EXTERNAL_DEPENDENCY = re.compile(
+    r"(?P<configuration>[A-Za-z][A-Za-z0-9]*)\s*\(\s*[\"'](?P<group>[A-Za-z0-9_.\-]+):(?P<artifact>[A-Za-z0-9_.\-]+)"
+    r"(?::[A-Za-z0-9_.\-]+)?[\"']\s*\)"
+)
+# Kotlin Multiplatform iOS target block functions, e.g. `ios()`, `iosArm64()`,
+# `iosSimulatorArm64()` inside a `kotlin { }` block.
+KMP_IOS_TARGET = re.compile(r"\bios(?:X64|Arm64|SimulatorArm64|Arm32)?\s*\(\s*\)")
+
+# Maps a detected "group:artifact" coordinate substring to the (field, value) pair
+# `suggest_profile_ids` expects -- mirrors the architecture framework's own
+# profile-doc-map.json vocabulary as of 2026-07-19. A coordinate not listed here is
+# simply not detected, never miscategorized -- this table will drift out of sync as
+# that framework's vocabulary grows and needs updating alongside it, not silently.
+GRADLE_COORDINATE_FRAMEWORKS: tuple[tuple[str, str, str], ...] = (
+    ("io.ktor:", "network", "ktor"),
+    ("com.squareup.retrofit2:", "network", "retrofit"),
+    ("androidx.room:", "database", "room"),
+    ("androidx.datastore:", "storage", "datastore"),
+    ("androidx.work:", "notifications", "workmanager"),
+    ("com.google.firebase:firebase-auth", "auth", "firebase"),
+    ("com.google.firebase:firebase-firestore", "cloud", "firebase"),
+    ("com.google.firebase:firebase-database", "cloud", "firebase"),
+    ("com.google.firebase:firebase-storage", "cloud", "firebase"),
+)
+
+# Configuration name substrings that mean "test-only" -- excluded from framework
+# detection so a component's test suite (e.g. a mocked HTTP client) never gets
+# reported as a framework the component itself actually uses.
+_TEST_CONFIGURATION_MARKER = "test"
+
+
+def detect_gradle_frameworks_and_targets(build_path: Path) -> tuple[dict[str, str], list[str]]:
+    """
+    Best-effort static detection of a Gradle component's frameworks-in-use and
+    platform targets directly from its build file -- Tier 1 of
+    plan/onboarding-answer-detection-and-suggestion.md. Returns ({}, []) if the build
+    file doesn't exist or nothing recognized is found; never raises for a missing or
+    unparseable file, since this is an optional enrichment, not a required step.
+
+    frameworks is shaped exactly as suggest_profile_ids expects: {field: value}, e.g.
+    {"network": "ktor"}. Only coordinates in GRADLE_COORDINATE_FRAMEWORKS are ever
+    detected -- an unrecognized dependency is silently not reported, not guessed at.
+    """
+    if not build_path.is_file():
+        return {}, []
+    try:
+        text = build_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}, []
+
+    frameworks: dict[str, str] = {}
+    for match in EXTERNAL_DEPENDENCY.finditer(text):
+        if _TEST_CONFIGURATION_MARKER in match.group("configuration").lower():
+            continue
+        coordinate = f"{match.group('group')}:{match.group('artifact')}"
+        for prefix, field, value in GRADLE_COORDINATE_FRAMEWORKS:
+            if coordinate.startswith(prefix):
+                frameworks[field] = value
+                break
+
+    targets = ["ios"] if KMP_IOS_TARGET.search(text) else []
+    return frameworks, targets
 
 
 def _project_path_to_accessor(project_path: str) -> str:
