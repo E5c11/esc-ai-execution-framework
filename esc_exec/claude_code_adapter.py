@@ -391,64 +391,189 @@ def extract_json_object(text: str) -> str:
     return text.strip()
 
 
+class GroundableField:
+    """
+    One entry in `GROUNDABLE_FIELDS` -- see
+    plan/active/generic-multi-component-detection.md design section 5. A
+    "groundable field" is a per-component onboarding question genuinely
+    answerable by reading the repository's real source, as opposed to an open
+    product/judgment call (those never get an AI-suggest path -- see that
+    plan's Non-goals). Adding a new groundable field means adding an entry
+    here, not a new bespoke function or a new AI call.
+    """
+
+    def __init__(self, key: str, needed_line: str, guidance: str, extract):
+        self.key = key  # applicability dict key, e.g. "purpose"
+        self.needed_line = needed_line  # "Components needing a `purpose` description"
+        self.guidance = guidance  # how to answer, included in the prompt once
+        self.extract = extract  # (entry: dict) -> dict of validated answer keys
+
+
+def _extract_purpose(entry: dict[str, Any]) -> dict[str, Any]:
+    purpose = entry.get("purpose")
+    return {"purpose": purpose.strip()} if isinstance(purpose, str) and purpose.strip() else {}
+
+
+def _extract_frameworks_targets(entry: dict[str, Any]) -> dict[str, Any]:
+    answer: dict[str, Any] = {}
+    frameworks = entry.get("frameworks")
+    if isinstance(frameworks, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in frameworks.items()):
+        answer["frameworks"] = frameworks
+    targets = entry.get("targets")
+    if isinstance(targets, list) and all(isinstance(t, str) for t in targets):
+        answer["targets"] = targets
+    return answer
+
+
+GROUNDABLE_FIELDS: list[GroundableField] = [
+    GroundableField(
+        key="purpose",
+        needed_line="Components needing a `purpose` description",
+        guidance=(
+            "purpose: ONE concise sentence describing what the component actually "
+            'does, based on its real source -- matching this style: "Handles user '
+            'authentication and session tokens" or "Owns lesson publishing."'
+        ),
+        extract=_extract_purpose,
+    ),
+    GroundableField(
+        key="frameworks_targets",
+        needed_line="Components needing `frameworks`/`targets`",
+        guidance=(
+            "frameworks: third-party libraries actually used, as field:value pairs "
+            "(field = category such as network/database/di, value = the specific "
+            "library, e.g. network:ktor, database:room, di:hilt). Only include ones "
+            "you're genuinely confident about from real dependency declarations -- "
+            "an empty object is a valid, confident answer if none are recognizable.\n"
+            "targets: platform targets (e.g. ios) only if genuinely declared (e.g. a "
+            "Kotlin Multiplatform target block) -- an empty list is a valid, "
+            "confident answer otherwise."
+        ),
+        extract=_extract_frameworks_targets,
+    ),
+]
+
+
 def suggest_onboarding_answers(
     client: ClaudeCodeClient, repository: Path,
     purpose_component_ids: list[str], frameworks_component_ids: list[str],
 ) -> dict[str, dict[str, Any]]:
     """
     Tier 2 of plan/onboarding-answer-detection-and-suggestion.md: a single batched,
-    read-only suggestion call covering every component's `purpose` field (inherently
-    semantic, never mechanically derivable from a build file at all) AND
-    `frameworks`/`targets` for components where Tier 1 static detection ran but found
-    nothing usable. One call for everything, not one per field per component: a live
-    smoke test this session measured ~40-50K tokens of pure fixed overhead per
-    `claude -p` invocation, so batching is a real cost concern, not premature
-    optimization. (Originally shipped as purpose-only under the name
-    `suggest_purposes` -- narrower than what the plan doc actually described, and
-    extended here to close that gap rather than adding a second separate call.)
+    read-only suggestion call covering every groundable field (`GROUNDABLE_FIELDS`)
+    a component still needs an answer for. One call for everything, not one per
+    field per component: a live smoke test this session measured ~40-50K tokens of
+    pure fixed overhead per `claude -p` invocation, so batching is a real cost
+    concern, not premature optimization. (Originally shipped as purpose-only under
+    the name `suggest_purposes`, then extended to frameworks/targets, then
+    refactored into the `GroundableField` registry above so a future groundable
+    field is additive rather than a third hardcoded branch.)
 
-    Returns {component_id: {"purpose": str, "frameworks": {field: value, ...},
-    "targets": [...]}} -- only the keys actually requested and actually answered are
-    present per component; a component asked about but not confidently answerable is
-    simply absent from its own sub-dict, not filled with an invented value.
+    Returns {component_id: {...}} -- only the keys actually requested and actually
+    answered are present per component; a component asked about but not confidently
+    answerable is simply absent from its own sub-dict, not filled with an invented
+    value.
 
     Fails open, never raises: any subprocess/parsing/schema failure returns {} so
     callers fall back to asking the plain question, exactly as if this were never
     called -- a wrong or missing suggestion is never worse than the question that
     already existed.
     """
-    component_ids = sorted(set(purpose_component_ids) | set(frameworks_component_ids))
-    if not component_ids:
-        return {}
-    prompt = "\n".join([
+    return _suggest_groundable_answers(
+        client, repository,
+        applicability={"purpose": set(purpose_component_ids), "frameworks_targets": set(frameworks_component_ids)},
+    )
+
+
+def groundable_component_ids(applicability: dict[str, set[str]]) -> list[str]:
+    return sorted(set().union(*applicability.values())) if applicability else []
+
+
+def build_groundable_prompt(applicability: dict[str, set[str]]) -> tuple[str, list[GroundableField]]:
+    """
+    Pure prompt-building half of the groundable-fields engine -- shared between
+    the one-shot path (`suggest_onboarding_answers`, below, via `client.ask()`)
+    and the session-based path (`esc_exec.conversation.suggest_groundable_answers_
+    turn`, via `run_turn`/`--resume`) so a resumed second turn for purpose/
+    frameworks (plan/active/generic-multi-component-detection.md design section 5)
+    doesn't duplicate this logic. `client.ask()` has no `--resume` support at all
+    (see its docstring: the lightweight, always-fresh path) -- only `client.run()`/
+    `run_turn` does, which is why the session-based caller has to live in
+    `conversation.py` rather than here, despite asking the exact same question.
+
+    Returns (prompt, fields) -- `fields` is just `applicability`'s keys resolved
+    back to their `GroundableField` objects, handed back so the caller doesn't
+    need to re-derive it before calling `parse_groundable_response`.
+    """
+    fields = [field for field in GROUNDABLE_FIELDS if applicability.get(field.key)]
+    prompt_lines = [
         "You are onboarding a software repository. For each component below, explore "
         "its real source directory (the repository's build file, e.g. "
         "settings.gradle.kts, declares each component as a subproject -- find its "
         "real directory yourself rather than guessing from the name alone) and "
         "provide the specific information requested for it.",
         "",
-        f"Components needing a `purpose` description: {', '.join(purpose_component_ids) or '(none)'}",
-        f"Components needing `frameworks`/`targets`: {', '.join(frameworks_component_ids) or '(none)'}",
-        "",
-        "purpose: ONE concise sentence describing what the component actually does, "
-        'based on its real source -- matching this style: "Handles user '
-        'authentication and session tokens" or "Owns lesson publishing."',
-        "frameworks: third-party libraries actually used, as field:value pairs "
-        "(field = category such as network/database/di, value = the specific "
-        "library, e.g. network:ktor, database:room, di:hilt). Only include ones "
-        "you're genuinely confident about from real dependency declarations -- an "
-        "empty object is a valid, confident answer if none are recognizable.",
-        "targets: platform targets (e.g. ios) only if genuinely declared (e.g. a "
-        "Kotlin Multiplatform target block) -- an empty list is a valid, confident "
-        "answer otherwise.",
+    ]
+    prompt_lines += [
+        f"{field.needed_line}: {', '.join(sorted(applicability.get(field.key, ()))) or '(none)'}"
+        for field in fields
+    ]
+    prompt_lines += ["", *[field.guidance for field in fields]]
+    prompt_lines += [
         "",
         "Respond with ONLY a JSON object, no markdown fences, no commentary, nothing "
-        "else -- omit \"frameworks\"/\"targets\" keys for components that weren't "
-        "asked about them, and omit any key you're not actually confident about "
-        "(never invent a plausible-sounding answer). Example:",
+        "else -- omit any key for a field a component wasn't asked about, and omit "
+        "any key you're not actually confident about (never invent a "
+        "plausible-sounding answer). Example:",
         '{"core-api": {"purpose": "...", "frameworks": {"network": "ktor"}, "targets": []}, '
         '"feature": {"purpose": "..."}}',
-    ])
+    ]
+    return "\n".join(prompt_lines), fields
+
+
+def parse_groundable_response(
+    result_text: str, applicability: dict[str, set[str]], fields: list[GroundableField],
+) -> dict[str, dict[str, Any]]:
+    """Pure response-parsing half -- see build_groundable_prompt. `applicability`
+    must be the same per-field component-ID mapping the prompt was built from --
+    a component only gets a field's keys extracted if it was genuinely asked about
+    that specific field, never every component that was asked about anything.
+    Never raises; an unparseable or malformed response yields {}, same fail-open
+    discipline as every other AI-suggestion path in this codebase."""
+    try:
+        parsed = json.loads(extract_json_object(result_text))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+
+    component_ids = groundable_component_ids(applicability)
+    suggestions: dict[str, dict[str, Any]] = {}
+    for component_id, entry in parsed.items():
+        if component_id not in component_ids or not isinstance(entry, dict):
+            continue
+        answer: dict[str, Any] = {}
+        for field in fields:
+            if component_id in applicability.get(field.key, ()):
+                answer.update(field.extract(entry))
+        if answer:
+            suggestions[component_id] = answer
+    return suggestions
+
+
+def _suggest_groundable_answers(
+    client: ClaudeCodeClient, repository: Path, applicability: dict[str, set[str]],
+) -> dict[str, dict[str, Any]]:
+    """
+    One-shot engine behind suggest_onboarding_answers: given which component IDs
+    need an answer for which `GROUNDABLE_FIELDS` key, build one batched prompt
+    covering exactly those fields, run it via the lightweight `client.ask()` path,
+    and extract only the keys each component actually asked about.
+    """
+    component_ids = groundable_component_ids(applicability)
+    if not component_ids:
+        return {}
+    prompt, fields = build_groundable_prompt(applicability)
     try:
         outcome = client.ask(repository, prompt, ["Read", "Glob", "Grep"])
     except ClaudeCodeError:
@@ -458,30 +583,4 @@ def suggest_onboarding_answers(
     result_text = outcome.get("result")
     if not isinstance(result_text, str):
         return {}
-    try:
-        parsed = json.loads(extract_json_object(result_text))
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
-
-    suggestions: dict[str, dict[str, Any]] = {}
-    for component_id, entry in parsed.items():
-        if component_id not in component_ids or not isinstance(entry, dict):
-            continue
-        answer: dict[str, Any] = {}
-        purpose = entry.get("purpose")
-        if component_id in purpose_component_ids and isinstance(purpose, str) and purpose.strip():
-            answer["purpose"] = purpose.strip()
-        if component_id in frameworks_component_ids:
-            frameworks = entry.get("frameworks")
-            if isinstance(frameworks, dict) and all(
-                isinstance(k, str) and isinstance(v, str) for k, v in frameworks.items()
-            ):
-                answer["frameworks"] = frameworks
-            targets = entry.get("targets")
-            if isinstance(targets, list) and all(isinstance(t, str) for t in targets):
-                answer["targets"] = targets
-        if answer:
-            suggestions[component_id] = answer
-    return suggestions
+    return parse_groundable_response(result_text, applicability, fields)

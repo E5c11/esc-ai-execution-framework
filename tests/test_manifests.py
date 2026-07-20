@@ -37,6 +37,39 @@ class ManifestTests(unittest.TestCase):
             [item["manifest"] for item in repository["components"]],
         )
 
+    def test_build_project_reflects_real_gradle_path_for_a_remapped_module(self):
+        # Regression: build.project used to be reconstructed from the component's
+        # directory (":" + relative.parts joined), which only matches the real
+        # Gradle project path by convention -- projectDir remapping breaks that
+        # convention on purpose (see gradle.py's PROJECT_DIR_RE), so the
+        # reconstruction silently produced the wrong project path, which
+        # dependencies.py's build_dependency_graph then can't match against a real
+        # `project(":the-real-path")` declaration anywhere else in the repo.
+        with TemporaryDirectory() as name:
+            root = Path(name)
+            (root / "settings.gradle.kts").write_text(
+                'rootProject.name = "arrow-errors"\n'
+                'include(":arrow-errors-core")\n'
+                'project(":arrow-errors-core").projectDir = file("error-core")\n',
+                encoding="utf-8",
+            )
+            (root / "error-core/src/main/kotlin").mkdir(parents=True)
+            generate_gradle_manifests(root)
+            manifest = load_yaml(component_manifest_path(root, "arrow-errors-core"))
+            self.assertEqual(":arrow-errors-core", manifest["build"]["project"])
+            self.assertEqual("error-core", manifest["component"]["path"])
+
+    def test_override_components_are_used_instead_of_fresh_detection(self):
+        generated = generate_gradle_manifests(
+            self.root, repository_id="sample", components=[("core-api", Path("core/api"))],
+        )
+        self.assertEqual(2, len(generated))
+        repository = load_yaml(repository_manifest_path(self.root))
+        self.assertEqual(
+            [".esc-ai/components/core-api/esc-component.yaml"],
+            [item["manifest"] for item in repository["components"]],
+        )
+
     def test_generated_component_is_incomplete_until_purpose_is_authored(self):
         generate_gradle_manifests(self.root)
         results = validate_repository(self.root)
@@ -157,6 +190,16 @@ class NpmManifestTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_override_components_are_used_instead_of_fresh_detection(self):
+        generated = generate_npm_manifests(
+            self.root, repository_id="garage-triage", components=[("app", Path("packages/app"))],
+        )
+        self.assertEqual(2, len(generated))
+        repository = load_yaml(repository_manifest_path(self.root))
+        self.assertEqual(
+            [".esc-ai/components/app/esc-component.yaml"], [item["manifest"] for item in repository["components"]],
+        )
 
     def test_generation_writes_repository_and_component_manifests(self):
         generated = generate_npm_manifests(self.root)

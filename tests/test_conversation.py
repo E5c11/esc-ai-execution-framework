@@ -6,7 +6,8 @@ import unittest
 from esc_exec.claude_code_adapter import ClaudeCodeError
 from esc_exec.conversation import (
     HARD_CONTEXT_THRESHOLD, SOFT_CONTEXT_THRESHOLD,
-    compact_conversation, context_consumption_ratio, context_window_from_usage, run_turn, threshold_crossed,
+    compact_conversation, context_consumption_ratio, context_window_from_usage, run_turn,
+    suggest_groundable_answers_turn, suggest_unresolved_components, threshold_crossed,
 )
 from esc_exec.roadmap import load_conversation_summary
 
@@ -274,6 +275,105 @@ class CompactConversationTests(unittest.TestCase):
             result = compact_conversation(client, Path(temp), "conv-1", "ses-1", "purpose")
         self.assertIsNone(result["roadmap_proposal"])
         self.assertEqual(result["progress"]["completed"], [])
+
+
+class SuggestUnresolvedComponentsTests(unittest.TestCase):
+    def test_empty_unresolved_list_short_circuits_without_a_call(self):
+        client = FakeClaudeCodeClient()
+        with TemporaryDirectory() as temp:
+            result = suggest_unresolved_components(client, Path(temp), [])
+        self.assertEqual({}, result["resolved"])
+        self.assertEqual([], client.prompts)
+
+    def test_resolves_identifiers_to_real_directories(self):
+        with TemporaryDirectory() as temp:
+            repository = Path(temp)
+            (repository / "error-core").mkdir()
+            payload = {":arrow-errors-core": "error-core"}
+            client = FakeClaudeCodeClient(messages=_stream_json(text=json.dumps(payload), session_id="ses-1"))
+            result = suggest_unresolved_components(client, repository, [":arrow-errors-core"])
+        self.assertEqual({":arrow-errors-core": "error-core"}, result["resolved"])
+        self.assertEqual("ses-1", result["session_id"])
+        self.assertEqual([None], client.resume_ids)
+
+    def test_prompt_never_mentions_gradle_or_npm(self):
+        with TemporaryDirectory() as temp:
+            client = FakeClaudeCodeClient(messages=_stream_json(text="{}", session_id="ses-1"))
+            suggest_unresolved_components(client, Path(temp), [":ghost"])
+        self.assertNotIn("gradle", client.prompts[0].lower())
+        self.assertNotIn("npm", client.prompts[0].lower())
+        self.assertIn(":ghost", client.prompts[0])
+
+    def test_answer_for_unlisted_identifier_is_dropped(self):
+        with TemporaryDirectory() as temp:
+            repository = Path(temp)
+            (repository / "other").mkdir()
+            payload = {":not-asked-about": "other"}
+            client = FakeClaudeCodeClient(messages=_stream_json(text=json.dumps(payload), session_id="ses-1"))
+            result = suggest_unresolved_components(client, repository, [":ghost"])
+        self.assertEqual({}, result["resolved"])
+
+    def test_answer_pointing_at_nonexistent_directory_is_dropped(self):
+        with TemporaryDirectory() as temp:
+            repository = Path(temp)
+            payload = {":ghost": "does-not-exist"}
+            client = FakeClaudeCodeClient(messages=_stream_json(text=json.dumps(payload), session_id="ses-1"))
+            result = suggest_unresolved_components(client, repository, [":ghost"])
+        self.assertEqual({}, result["resolved"])
+
+    def test_client_error_fails_open(self):
+        with TemporaryDirectory() as temp:
+            result = suggest_unresolved_components(FakeRaisingClient(), Path(temp), [":ghost"])
+        self.assertEqual({}, result["resolved"])
+
+    def test_resumes_an_existing_session_when_given_one(self):
+        with TemporaryDirectory() as temp:
+            client = FakeClaudeCodeClient(messages=_stream_json(text="{}", session_id="ses-1"))
+            suggest_unresolved_components(client, Path(temp), [":ghost"], resume_session_id="ses-1")
+        self.assertEqual(["ses-1"], client.resume_ids)
+
+
+class SuggestGroundableAnswersTurnTests(unittest.TestCase):
+    def test_no_applicable_components_short_circuits_without_a_call(self):
+        client = FakeClaudeCodeClient()
+        with TemporaryDirectory() as temp:
+            result = suggest_groundable_answers_turn(client, Path(temp), {"purpose": set(), "frameworks_targets": set()})
+        self.assertEqual({}, result["suggestions"])
+        self.assertEqual([], client.prompts)
+
+    def test_resumes_the_given_session_for_a_cheap_second_turn(self):
+        payload = {"core-api": {"purpose": "Owns the core API."}}
+        client = FakeClaudeCodeClient(messages=_stream_json(text=json.dumps(payload), session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            result = suggest_groundable_answers_turn(
+                client, Path(temp), {"purpose": {"core-api"}, "frameworks_targets": set()},
+                resume_session_id="ses-1",
+            )
+        self.assertEqual({"core-api": {"purpose": "Owns the core API."}}, result["suggestions"])
+        self.assertEqual("ses-1", result["session_id"])
+        self.assertEqual(["ses-1"], client.resume_ids)
+
+    def test_mixed_applicability_never_leaks_a_field_across_components(self):
+        payload = {
+            "core-api": {"purpose": "Owns the core API.", "frameworks": {"network": "ktor"}},
+            "feature": {"purpose": "Owns the feature.", "frameworks": {"network": "ktor"}},
+        }
+        client = FakeClaudeCodeClient(messages=_stream_json(text=json.dumps(payload), session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            result = suggest_groundable_answers_turn(
+                client, Path(temp), {"purpose": {"core-api", "feature"}, "frameworks_targets": {"core-api"}},
+            )
+        self.assertEqual({
+            "core-api": {"purpose": "Owns the core API.", "frameworks": {"network": "ktor"}},
+            "feature": {"purpose": "Owns the feature."},
+        }, result["suggestions"])
+
+    def test_turn_error_fails_open(self):
+        with TemporaryDirectory() as temp:
+            result = suggest_groundable_answers_turn(
+                FakeRaisingClient(), Path(temp), {"purpose": {"core-api"}, "frameworks_targets": set()},
+            )
+        self.assertEqual({}, result["suggestions"])
 
 
 if __name__ == "__main__":

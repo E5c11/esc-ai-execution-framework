@@ -5,7 +5,7 @@ from typing import Any
 
 from esc_exec.framework_descriptor import check_framework_compatibility
 from esc_exec.adapters import detect_build_system
-from esc_exec.gradle import component_structure, detect_gradle_repository
+from esc_exec.gradle import component_structure, detect_gradle_repository, gradle_project_paths
 from esc_exec.model import ManifestState, ValidationResult
 from esc_exec.npm import detect_npm_repository, npm_component_structure
 from esc_exec.registry import RENAMED_FRAMEWORK_IDS
@@ -82,9 +82,24 @@ def _architecture_selector_errors(data: dict[str, Any]) -> list[str]:
     return []
 
 
-def generate_gradle_manifests(root: Path) -> list[Path]:
+def generate_gradle_manifests(
+    root: Path, repository_id: str | None = None, components: list[tuple[str, Path]] | None = None,
+) -> list[Path]:
+    """
+    repository_id/components are optional overrides -- when omitted (every
+    existing call site), behavior is unchanged: detect fresh via
+    detect_gradle_repository. A caller that already computed a final component
+    list (e.g. onboarding merging in Tier 2 AI-resolved components and applying
+    exclusions -- see plan/active/generic-multi-component-detection.md) passes it
+    through here instead of this function silently re-deriving Tier 1-only
+    components and ignoring that work.
+    """
     root = root.resolve()
-    repository_id, components = detect_gradle_repository(root)
+    if repository_id is None or components is None:
+        detected_id, detected_components = detect_gradle_repository(root)
+        repository_id = repository_id if repository_id is not None else detected_id
+        components = components if components is not None else detected_components
+    project_paths = gradle_project_paths(root)
     repository_path = repository_manifest_path(root)
     existing_repository = load_yaml(repository_path) if repository_path.exists() else {}
     generated_repository = {
@@ -108,6 +123,12 @@ def generate_gradle_manifests(root: Path) -> list[Path]:
     for component_id, relative in components:
         manifest_path = component_manifest_path(root, component_id)
         existing = load_yaml(manifest_path) if manifest_path.exists() else {}
+        # project_paths only knows about identifiers this repository's settings
+        # file actually declared via include(...) -- an AI-resolved component
+        # (not statically parseable at all, see gradle.py's unresolved_gradle_
+        # includes) falls back to the directory-derived reconstruction, the best
+        # available guess when there's no real declared project path to read.
+        project_path = project_paths.get(component_id, ":" + ":".join(relative.parts))
         generated = {
             "schema_version": 1,
             "component": {
@@ -117,7 +138,7 @@ def generate_gradle_manifests(root: Path) -> list[Path]:
             },
             "build": {
                 "system": "gradle",
-                "project": ":" + ":".join(relative.parts),
+                "project": project_path,
             },
             "paths": component_structure(root, relative),
             "generation": {
@@ -130,9 +151,15 @@ def generate_gradle_manifests(root: Path) -> list[Path]:
     return written
 
 
-def generate_npm_manifests(root: Path) -> list[Path]:
+def generate_npm_manifests(
+    root: Path, repository_id: str | None = None, components: list[tuple[str, Path]] | None = None,
+) -> list[Path]:
+    """See generate_gradle_manifests' docstring -- same optional-override contract."""
     root = root.resolve()
-    repository_id, components = detect_npm_repository(root)
+    if repository_id is None or components is None:
+        detected_id, detected_components = detect_npm_repository(root)
+        repository_id = repository_id if repository_id is not None else detected_id
+        components = components if components is not None else detected_components
     repository_path = repository_manifest_path(root)
     existing_repository = load_yaml(repository_path) if repository_path.exists() else {}
     generated_repository = {

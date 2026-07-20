@@ -312,6 +312,25 @@ class SuggestOnboardingAnswersTests(unittest.TestCase):
             "feature": {"purpose": "Owns the feature."},
         }, result)
 
+    def test_mixed_applicability_never_leaks_a_field_to_a_component_not_asked_about_it(self):
+        # Regression: a component only asked about `purpose` must never get
+        # `frameworks`/`targets` extracted even when ANOTHER component in the same
+        # batched call was asked about frameworks -- both fields being non-empty in
+        # the same call previously caused parse_groundable_response to treat every
+        # requested component as applicable to every requested field.
+        client = FakeAskClient({
+            "result": json.dumps({
+                "core-api": {"purpose": "Owns the core API.", "frameworks": {"network": "ktor"}},
+                "feature": {"purpose": "Owns the feature.", "frameworks": {"network": "ktor"}},
+            }),
+            "is_error": False,
+        })
+        result = suggest_onboarding_answers(client, Path("/tmp"), ["core-api", "feature"], ["core-api"])
+        self.assertEqual({
+            "core-api": {"purpose": "Owns the core API.", "frameworks": {"network": "ktor"}},
+            "feature": {"purpose": "Owns the feature."},
+        }, result)
+
     def test_confidently_empty_frameworks_and_targets_are_kept(self):
         # {} and [] are valid, confident answers ("looked, found nothing") -- must
         # not be dropped as if they were missing/unanswered.

@@ -32,6 +32,21 @@ properties:
         manifest: {type: string, pattern: "(^|/)esc-component\\.yaml$"}
   generation:
     $ref: "#/$defs/generation"
+  resolved_components:
+    type: object
+    description: >-
+      Tier 2 AI-resolved component_id -> repository-root-relative directory,
+      persisted so a component whose build-configuration identifier Tier 1
+      static detection can't resolve on its own (see BuildSystemAdapter.unresolved)
+      doesn't need to be re-resolved by AI on every future analyze/apply.
+    additionalProperties: {type: string, minLength: 1}
+  excluded_components:
+    type: array
+    description: >-
+      Component IDs a human explicitly excluded during onboarding confirmation
+      (test fixtures, deprecated modules, ...) -- never re-offered as "create" by
+      a future analyze regardless of which tier would otherwise detect them.
+    items: {type: string, minLength: 1}
 $defs:
   generation:
     type: object

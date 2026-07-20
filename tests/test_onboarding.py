@@ -379,5 +379,129 @@ class SingleModuleGradleOnboardingTests(unittest.TestCase):
         self.assertIn(".esc-ai/esc-dependencies.json", result["written"])
 
 
+class ComponentExclusionTests(unittest.TestCase):
+    """
+    plan/active/generic-multi-component-detection.md design section 6 --
+    excluded_components persistence.
+    """
+
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / "settings.gradle.kts").write_text(
+            'rootProject.name = "sample"\ninclude(":core:api")\ninclude(":feature")\n',
+            encoding="utf-8",
+        )
+        for component in (self.root / "core/api", self.root / "feature"):
+            (component / "src/main/kotlin").mkdir(parents=True)
+            (component / "build.gradle.kts").write_text("", encoding="utf-8")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_excluded_component_gets_no_manifest_and_is_persisted(self):
+        proposal = analyze_repository(self.root)
+        answers = {
+            "core-api": {"purpose": "Owns the core API."},
+            "feature": {"purpose": "Owns the feature."},
+        }
+        apply_onboarding_answers(self.root, proposal, answers, excluded_component_ids=["feature"])
+
+        self.assertFalse(component_manifest_path(self.root, "feature").is_file())
+        repository = load_yaml(self.root / ".esc-ai" / "esc-execution.yaml")
+        self.assertEqual(["feature"], repository["excluded_components"])
+        self.assertEqual(["core-api"], [item["id"] for item in repository["components"]])
+
+    def test_excluded_component_is_never_reoffered_on_a_later_analyze(self):
+        proposal = analyze_repository(self.root)
+        answers = {
+            "core-api": {"purpose": "Owns the core API."},
+            "feature": {"purpose": "Owns the feature."},
+        }
+        apply_onboarding_answers(self.root, proposal, answers, excluded_component_ids=["feature"])
+
+        second_proposal = analyze_repository(self.root)
+        self.assertEqual({"core-api"}, {component["id"] for component in second_proposal["components"]})
+        actions = {entry["path"]: entry["action"] for entry in second_proposal["files"]}
+        self.assertNotIn(".esc-ai/components/feature/esc-component.yaml", actions)
+
+
+class ResolvedComponentPersistenceTests(unittest.TestCase):
+    """
+    plan/active/generic-multi-component-detection.md design sections 3-5 --
+    Tier 2 AI-resolved module identity, persisted so a later analyze/apply picks
+    it up without re-invoking AI.
+    """
+
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / "settings.gradle.kts").write_text(
+            'rootProject.name = "arrow-errors"\n'
+            'include(":arrow-errors-core")\n'
+            'project(":arrow-errors-core").projectDir = file("error-core")\n',
+            encoding="utf-8",
+        )
+        (self.root / "error-core/src/main/kotlin").mkdir(parents=True)
+        (self.root / "error-core/build.gradle.kts").write_text("", encoding="utf-8")
+        # A genuinely unresolvable module -- no projectDir remap tells us where
+        # it really lives, only a (fake) Tier 2 AI answer would.
+        (self.root / "settings.gradle.kts").write_text(
+            (self.root / "settings.gradle.kts").read_text(encoding="utf-8") + 'include(":arrow-errors-ghost")\n',
+            encoding="utf-8",
+        )
+        (self.root / "ghost-dir").mkdir()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_extra_resolved_components_appear_in_analysis(self):
+        proposal = analyze_repository(
+            self.root, extra_resolved_components={":arrow-errors-ghost": "ghost-dir"},
+        )
+        self.assertEqual(
+            {"arrow-errors-core", "arrow-errors-ghost"}, {c["id"] for c in proposal["components"]},
+        )
+
+    def test_apply_persists_resolution_and_writes_its_manifest(self):
+        proposal = analyze_repository(self.root, extra_resolved_components={":arrow-errors-ghost": "ghost-dir"})
+        answers = {
+            "arrow-errors-core": {"purpose": "Core errors."},
+            "arrow-errors-ghost": {"purpose": "The ghost module."},
+        }
+        apply_onboarding_answers(
+            self.root, proposal, answers, resolved_components={":arrow-errors-ghost": "ghost-dir"},
+        )
+        manifest = load_yaml(component_manifest_path(self.root, "arrow-errors-ghost"))
+        self.assertEqual("ghost-dir", manifest["component"]["path"])
+        self.assertEqual("The ghost module.", manifest["component"]["purpose"])
+        repository = load_yaml(self.root / ".esc-ai" / "esc-execution.yaml")
+        self.assertEqual({":arrow-errors-ghost": "ghost-dir"}, repository["resolved_components"])
+
+    def test_later_analyze_picks_up_persisted_resolution_without_reasking(self):
+        proposal = analyze_repository(self.root, extra_resolved_components={":arrow-errors-ghost": "ghost-dir"})
+        answers = {
+            "arrow-errors-core": {"purpose": "Core errors."},
+            "arrow-errors-ghost": {"purpose": "The ghost module."},
+        }
+        apply_onboarding_answers(
+            self.root, proposal, answers, resolved_components={":arrow-errors-ghost": "ghost-dir"},
+        )
+        # No extra_resolved_components passed this time -- the persisted manifest
+        # alone must be enough.
+        second_proposal = analyze_repository(self.root)
+        self.assertEqual(
+            {"arrow-errors-core", "arrow-errors-ghost"}, {c["id"] for c in second_proposal["components"]},
+        )
+        actions = {entry["path"]: entry["action"] for entry in second_proposal["files"]}
+        self.assertEqual(
+            "preserve", actions[".esc-ai/components/arrow-errors-ghost/esc-component.yaml"],
+        )
+
+    def test_resolution_pointing_at_nonexistent_directory_is_ignored(self):
+        proposal = analyze_repository(self.root, extra_resolved_components={":arrow-errors-ghost": "nope"})
+        self.assertEqual({"arrow-errors-core"}, {c["id"] for c in proposal["components"]})
+
+
 if __name__ == "__main__":
     unittest.main()

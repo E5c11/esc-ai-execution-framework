@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from esc_exec.claude_code_adapter import ClaudeCodeClient, ClaudeCodeError, extract_json_object, result_message
+from esc_exec.claude_code_adapter import (
+    ClaudeCodeClient, ClaudeCodeError, build_groundable_prompt, extract_json_object,
+    groundable_component_ids, parse_groundable_response, result_message,
+)
 from esc_exec.roadmap import save_conversation_summary
 
 # Real, API-reported context-window consumption thresholds only -- no fabricated
@@ -235,3 +238,87 @@ def compact_conversation(
         remaining=progress["remaining"], open_questions=progress["open_questions"],
     )
     return {"progress": progress, "roadmap_proposal": roadmap_proposal, "session_id": turn["session_id"]}
+
+
+def suggest_unresolved_components(
+    client: ClaudeCodeClient, repository: Path, unresolved: list[str], resume_session_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Generic Tier 2 AI fallback for `BuildSystemAdapter.unresolved()` -- see
+    plan/active/generic-multi-component-detection.md design section 3. Deliberately
+    adapter-agnostic in its phrasing: never mentions Gradle, npm, or any
+    build-system-specific syntax, just "identifier -> directory," which is exactly
+    what `unresolved()`'s contract already provides regardless of which adapter
+    produced it.
+
+    Runs one `run_turn` call (not a fresh one-shot `client.ask()`) so this can be
+    the first turn of a session a caller later resumes cheaply for a second turn
+    (e.g. purpose/frameworks suggestion for the confirmed component list) -- see
+    this module's own live-measured near-zero cost on a resumed turn.
+
+    Returns {"resolved": {identifier: relative_directory, ...}, "session_id": str |
+    None} -- `resolved` only contains identifiers `unresolved` actually listed,
+    each with a directory that genuinely exists on disk; anything the model wasn't
+    confident about, or that doesn't resolve to a real path, is simply absent, not
+    filled with an invented value. Fails open: any turn failure returns an empty
+    `resolved` dict, never raises.
+    """
+    if not unresolved:
+        return {"resolved": {}, "session_id": resume_session_id}
+    prompt = "\n".join([
+        "This repository declares these identifiers in its build configuration, "
+        f"but they could not be resolved to a real on-disk directory: {', '.join(unresolved)}.",
+        "",
+        "Explore the repository and figure out which existing directory each one "
+        "actually corresponds to.",
+        "",
+        "Respond with ONLY a JSON object, no markdown fences, no commentary: "
+        '{"<identifier>": "<repository-root-relative directory>", ...} -- omit any '
+        "you can't confidently resolve, never guess.",
+    ])
+    turn = run_turn(client, repository, prompt, tools=["Read", "Glob", "Grep"], resume_session_id=resume_session_id)
+
+    resolved: dict[str, str] = {}
+    if not turn["is_error"] and turn["text"]:
+        try:
+            parsed = json.loads(extract_json_object(turn["text"]))
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            unresolved_set = set(unresolved)
+            for identifier, relative_path in parsed.items():
+                if (
+                    identifier in unresolved_set
+                    and isinstance(relative_path, str) and relative_path.strip()
+                    and (repository / relative_path).is_dir()
+                ):
+                    resolved[identifier] = relative_path
+    return {"resolved": resolved, "session_id": turn["session_id"]}
+
+
+def suggest_groundable_answers_turn(
+    client: ClaudeCodeClient, repository: Path, applicability: dict[str, set[str]],
+    resume_session_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Session-based twin of `claude_code_adapter.suggest_onboarding_answers` --
+    same groundable-fields question, same prompt (via `build_groundable_prompt`),
+    but run as a `run_turn` so a caller that already has a session open (e.g.
+    `suggest_unresolved_components`'s module-resolution turn) can `--resume` it
+    for this second turn instead of paying a fresh `claude -p` invocation's full
+    setup cost again -- see plan/active/generic-multi-component-detection.md
+    design section 5's "no new live per-question call" requirement.
+
+    Returns {"suggestions": {component_id: {...}}, "session_id": str | None}, same
+    per-component shape `suggest_onboarding_answers` returns. Fails open: any turn
+    failure returns an empty `suggestions` dict, never raises.
+    """
+    component_ids = groundable_component_ids(applicability)
+    if not component_ids:
+        return {"suggestions": {}, "session_id": resume_session_id}
+    prompt, fields = build_groundable_prompt(applicability)
+    turn = run_turn(client, repository, prompt, tools=["Read", "Glob", "Grep"], resume_session_id=resume_session_id)
+    suggestions: dict[str, dict[str, Any]] = {}
+    if not turn["is_error"] and turn["text"]:
+        suggestions = parse_groundable_response(turn["text"], applicability, fields)
+    return {"suggestions": suggestions, "session_id": turn["session_id"]}
