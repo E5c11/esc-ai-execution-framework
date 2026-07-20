@@ -52,19 +52,19 @@ def planning_questions(repository_matches: dict[str, list[Match]]) -> list[dict[
     return questions
 
 
-def _load_index(repository: Path) -> dict[str, Any]:
+def load_repository_index(repository: Path) -> dict[str, Any]:
     return load_json(repository / ESC_AI_DIR / INDEX_FILE)
 
 
 def _validate_components(repository: Path, components: list[str]) -> None:
-    index = _load_index(repository)
+    index = load_repository_index(repository)
     known = {item["id"] for item in index["components"]}
     missing = sorted(set(components) - known)
     if missing:
         raise ValueError(f"components not in the repository index: {', '.join(missing)}")
 
 
-def _architecture_doc_ids(repository: Path, index: dict[str, Any], components: list[str]) -> list[str]:
+def architecture_doc_ids_for_components(repository: Path, index: dict[str, Any], components: list[str]) -> list[str]:
     ids: list[str] = []
     by_id = {item["id"]: item for item in index["components"]}
     for component_id in components:
@@ -80,6 +80,7 @@ def _render_task_readme(
     task_id: str, objective: str, work_type: str, components: list[str],
     scope_boundary: str, completion_conditions: list[str], rollout_needs: str,
     architecture_doc_ids: list[str], initiative: dict[str, Any] | None,
+    local_architecture_notes: list[str] | None = None,
 ) -> str:
     lines = [f"# {task_id}", "", f"**Work type:** {work_type}", "", "## Objective", "", objective, ""]
     if initiative:
@@ -93,6 +94,15 @@ def _render_task_readme(
     lines += ["## Components", "", *(f"- `{component_id}`" for component_id in components), ""]
     if architecture_doc_ids:
         lines += ["## Referenced architecture documents", "", *(f"- `{doc_id}`" for doc_id in architecture_doc_ids), ""]
+    if local_architecture_notes:
+        # Deliberately its own section, never merged into "Referenced architecture
+        # documents" above -- these are local, unreviewed (see
+        # esc_exec/local_architecture.py), and must never look indistinguishable
+        # from a real, reviewed framework document to whoever reads this task.
+        lines += [
+            "## Local architecture notes (unreviewed)", "",
+            *(f"- `{path}`" for path in local_architecture_notes), "",
+        ]
     lines += ["## Scope boundary", "", scope_boundary or "(none stated)", ""]
     lines += ["## Completion conditions", "", *(f"- {condition}" for condition in completion_conditions), ""]
     if rollout_needs:
@@ -111,10 +121,17 @@ def generate_single_repository_workflow(
     completion_conditions: list[str],
     rollout_needs: str = "",
     initiative: dict[str, Any] | None = None,
+    local_architecture_notes: list[str] | None = None,
 ) -> list[Path]:
     """
     Validates components resolve against the repository's own index before writing
     anything -- no partial task.yaml/README.md pair left behind on a bad reference.
+
+    local_architecture_notes (relative paths, e.g. from
+    esc_exec.local_architecture.write_local_architecture_note) render into the
+    README in their own section, distinct from architecture_doc_ids -- same
+    README-only precedent architecture_doc_ids itself already sets (neither is
+    written into the schema-validated task.yaml).
     """
     if not TASK_ID.fullmatch(task_id):
         raise ValueError("task ID is not safe for workflow discovery")
@@ -124,8 +141,8 @@ def generate_single_repository_workflow(
         raise ValueError("completion_conditions must be a non-empty list")
     _validate_components(repository, components)
 
-    index = _load_index(repository)
-    architecture_doc_ids = _architecture_doc_ids(repository, index, components)
+    index = load_repository_index(repository)
+    architecture_doc_ids = architecture_doc_ids_for_components(repository, index, components)
 
     task_document: dict[str, Any] = {
         "schema_version": 1,
@@ -148,6 +165,7 @@ def generate_single_repository_workflow(
         _render_task_readme(
             task_id, objective, work_type, components, scope_boundary,
             completion_conditions, rollout_needs, architecture_doc_ids, initiative,
+            local_architecture_notes,
         ),
         encoding="utf-8",
     )
@@ -163,7 +181,8 @@ def generate_multi_repository_workflow(
 ) -> dict[str, list[Path]]:
     """
     tasks maps repository_id -> {"task_id", "components", "scope_boundary",
-    "completion_conditions", "rollout_needs"?, "depends_on"?: ["repo/task_id", ...]}.
+    "completion_conditions", "rollout_needs"?, "depends_on"?: ["repo/task_id", ...],
+    "local_architecture_notes"?: [relative path, ...]}.
 
     Validates every referenced repository ID resolves, every task_id is safe, and
     every depends_on entry references another declared repository/task_id in this
@@ -205,6 +224,6 @@ def generate_multi_repository_workflow(
         written[repository_id] = generate_single_repository_workflow(
             resolved[repository_id], repository_id, task["task_id"], objective, work_type,
             task["components"], task.get("scope_boundary", ""), task["completion_conditions"],
-            task.get("rollout_needs", ""), initiative,
+            task.get("rollout_needs", ""), initiative, task.get("local_architecture_notes"),
         )
     return written

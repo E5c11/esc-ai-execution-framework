@@ -72,6 +72,29 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(["content"], document["scope"]["components"])
         self.assertIn("CSV matches schema", readme_path.read_text())
 
+    def test_local_architecture_notes_render_in_their_own_readme_section(self):
+        written = generate_single_repository_workflow(
+            self.root, "repo", "task-export", "Add CSV export.", "feature",
+            ["content"], "No admin UI.", ["Export button works"],
+            local_architecture_notes=[".esc-ai/local-architecture/background-jobs.md"],
+        )
+        task_path, readme_path = written
+        # Never written into the schema-validated task.yaml -- same precedent
+        # architecture_doc_ids itself already sets (README-only).
+        document = load_yaml(task_path)
+        self.assertNotIn("local_architecture_notes", document)
+        readme = readme_path.read_text()
+        self.assertIn("## Local architecture notes (unreviewed)", readme)
+        self.assertIn(".esc-ai/local-architecture/background-jobs.md", readme)
+
+    def test_no_local_architecture_notes_section_when_none_given(self):
+        written = generate_single_repository_workflow(
+            self.root, "repo", "task-export", "Add CSV export.", "feature",
+            ["content"], "No admin UI.", ["Export button works"],
+        )
+        _, readme_path = written
+        self.assertNotIn("Local architecture notes", readme_path.read_text())
+
     def test_rejects_unresolvable_component_without_writing_anything(self):
         with self.assertRaisesRegex(ValueError, "not in the repository index"):
             generate_single_repository_workflow(
@@ -130,6 +153,23 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(["repo/task-contract"], api_task["task"]["initiative"]["depends_on"])
         contract_task = load_yaml(self.root / ".esc-ai/workflows/active/task-contract/task.yaml")
         self.assertNotIn("depends_on", contract_task["task"]["initiative"])
+
+    def test_multi_repository_threads_local_architecture_notes_per_task(self):
+        registry = self.root / "registry-notes.yaml"
+        add_route(registry, "repositories", "repo", self.root)
+
+        generate_multi_repository_workflow(
+            registry, "feature-jobs", "Add background jobs.", "feature",
+            {
+                "repo": {
+                    "task_id": "task-jobs", "components": ["content"], "completion_conditions": ["done"],
+                    "local_architecture_notes": [".esc-ai/local-architecture/background-jobs.md"],
+                },
+            },
+        )
+        readme = (self.root / ".esc-ai/workflows/active/task-jobs/README.md").read_text()
+        self.assertIn("## Local architecture notes (unreviewed)", readme)
+        self.assertIn(".esc-ai/local-architecture/background-jobs.md", readme)
 
     def test_rejects_unsafe_task_id(self):
         with self.assertRaisesRegex(ValueError, "not safe"):

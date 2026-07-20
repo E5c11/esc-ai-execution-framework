@@ -14,6 +14,7 @@ from esc_exec.contracts import validate_contract
 from esc_exec.instructions import build_instruction_bundle
 from esc_exec.json_io import write_json
 from esc_exec.model import ManifestState
+from esc_exec.planning import WORK_TYPES
 from esc_exec.registry import resolve_route
 from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
@@ -584,3 +585,162 @@ def _suggest_groundable_answers(
     if not isinstance(result_text, str):
         return {}
     return parse_groundable_response(result_text, applicability, fields)
+
+
+def suggest_work_type_drift(
+    client: ClaudeCodeClient, repository: Path, work_type: str, objective: str,
+    scope_boundary: str, completion_conditions: list[str],
+) -> dict[str, Any]:
+    """
+    plan/active/planning-consistency-checks.md design section 1: checks whether a
+    plan's declared work_type still fits what's actually being described, once
+    objective/scope_boundary/completion_conditions are known -- regardless of
+    whether they came from today's static question path or a future conversation
+    path. Text-only judgment, no repository file access needed (unlike
+    onboarding's suggestions, which ground themselves in real source) -- granted
+    zero tools.
+
+    Never silently reclassifies or blocks (explicit design decision) -- this only
+    reports a suggestion; the caller is responsible for asking the human to
+    confirm the new type or explicitly keep the original.
+
+    Returns {"drifted": bool, "suggested_work_type": str | None, "reasoning": str
+    | None}. `suggested_work_type` is only ever one of the real WORK_TYPES values
+    (never invented, never equal to the declared type), and is always
+    accompanied by a non-empty `reasoning` string when `drifted` is True -- a
+    drift claim with no grounding is worse than no check at all. Fails open,
+    never raises: any subprocess/parsing/schema failure, or a self-contradictory
+    response, returns drifted=False -- a failed check must never block or
+    distort planning, same discipline as every other AI-suggestion path in this
+    codebase.
+    """
+    no_drift = {"drifted": False, "suggested_work_type": None, "reasoning": None}
+    completion_lines = [f"  - {condition}" for condition in completion_conditions] or ["  (none stated)"]
+    prompt = "\n".join([
+        "A software change was planned with the following declared work_type and "
+        "description. Decide whether the declared work_type still genuinely fits "
+        "the description, or whether the described work has grown into (or "
+        "always really was) a different one.",
+        "",
+        f"Declared work_type: {work_type}",
+        f"Objective: {objective}",
+        f"Scope boundary (explicitly out of scope): {scope_boundary or '(none stated)'}",
+        "Completion conditions:",
+        *completion_lines,
+        "",
+        f"Valid work_type values: {', '.join(WORK_TYPES)}.",
+        "Only report drift if you are genuinely confident the declared type no "
+        "longer fits -- e.g. a declared `fix` that actually describes new "
+        "behavior, not a correction, or a declared `feature` that's really just "
+        "a `refactor` with no new behavior. When in doubt, do not report drift.",
+        "",
+        "Respond with ONLY a JSON object, no markdown fences, no commentary, "
+        'nothing else: {"drifted": true|false, "suggested_work_type": "<one of '
+        'the valid values>"|null, "reasoning": "<one sentence, only if '
+        'drifted>"|null}. suggested_work_type and reasoning must both be null '
+        "when drifted is false. Never suggest a value outside the valid list, "
+        "and never suggest the same value that was already declared.",
+    ])
+    try:
+        outcome = client.ask(repository, prompt, [])
+    except ClaudeCodeError:
+        return no_drift
+    if outcome.get("is_error"):
+        return no_drift
+    result_text = outcome.get("result")
+    if not isinstance(result_text, str):
+        return no_drift
+    try:
+        parsed = json.loads(extract_json_object(result_text))
+    except json.JSONDecodeError:
+        return no_drift
+    if not isinstance(parsed, dict) or parsed.get("drifted") is not True:
+        return no_drift
+    suggested = parsed.get("suggested_work_type")
+    reasoning = parsed.get("reasoning")
+    if (
+        isinstance(suggested, str) and suggested in WORK_TYPES and suggested != work_type
+        and isinstance(reasoning, str) and reasoning.strip()
+    ):
+        return {"drifted": True, "suggested_work_type": suggested, "reasoning": reasoning.strip()}
+    return no_drift
+
+
+def suggest_architecture_coverage_gap(
+    client: ClaudeCodeClient, framework_root: Path, objective: str, resolved_documents: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    plan/active/planning-consistency-checks.md design section 2: checks whether a
+    component's already-resolved architecture.profile_ids (resolved once,
+    generically, at onboarding time from a static frameworks/targets lookup, not
+    from this objective) actually give real guidance for this specific objective.
+
+    Unlike suggest_work_type_drift, this grants Read/Glob/Grep scoped to the
+    architecture framework's own checkout (framework_root) -- judging real
+    documentation coverage benefits from reading actual document content, not just
+    the index's id/tags/layer metadata alone.
+
+    No resolved documents at all is treated as an uncovered gap without spending an
+    AI call on it -- there is nothing to judge coverage against.
+
+    Returns {"covered": bool, "reasoning": str | None, "suggested_title": str |
+    None}. `covered=False` is only ever returned with both a non-empty `reasoning`
+    and a non-empty `suggested_title` (a starting point for a local architecture
+    note's title, never the note itself -- drafting one is a separate, explicit
+    step) -- an uncovered claim with no grounding is worse than no check at all.
+    Fails open to covered=True on any subprocess/parsing/schema failure -- a
+    broken check must never manufacture a false "not covered" warning, same
+    discipline as suggest_work_type_drift.
+    """
+    covered = {"covered": True, "reasoning": None, "suggested_title": None}
+    if not resolved_documents:
+        return {
+            "covered": False,
+            "reasoning": "No architecture framework documents are resolved for this component at all.",
+            "suggested_title": None,
+        }
+    doc_lines = [
+        f"- {document['id']} ({document.get('path', '?')}): tags={', '.join(document.get('tags') or [])}"
+        for document in resolved_documents
+    ]
+    prompt = "\n".join([
+        "A software change is being planned for a component whose architecture "
+        "framework already has these documents resolved for it -- read any of "
+        "them yourself if you need to, they're real files under this directory:",
+        "",
+        *doc_lines,
+        "",
+        f"Objective: {objective}",
+        "",
+        "Judge whether these documents actually give real, relevant guidance for "
+        "implementing this specific objective -- not just whether they were "
+        "resolved for this component in general (they were, generically, based on "
+        "the component's tech stack, not based on this objective). Only report a "
+        "gap if you're genuinely confident none of these documents meaningfully "
+        "cover this objective's concern.",
+        "",
+        "Respond with ONLY a JSON object, no markdown fences, no commentary, "
+        'nothing else: {"covered": true|false, "reasoning": "<one sentence, only '
+        'if not covered>"|null, "suggested_title": "<a short title for a new '
+        'architecture note covering this gap, only if not covered>"|null}.',
+    ])
+    try:
+        outcome = client.ask(framework_root, prompt, ["Read", "Glob", "Grep"])
+    except ClaudeCodeError:
+        return covered
+    if outcome.get("is_error"):
+        return covered
+    result_text = outcome.get("result")
+    if not isinstance(result_text, str):
+        return covered
+    try:
+        parsed = json.loads(extract_json_object(result_text))
+    except json.JSONDecodeError:
+        return covered
+    if not isinstance(parsed, dict) or parsed.get("covered") is not False:
+        return covered
+    reasoning = parsed.get("reasoning")
+    title = parsed.get("suggested_title")
+    if isinstance(reasoning, str) and reasoning.strip() and isinstance(title, str) and title.strip():
+        return {"covered": False, "reasoning": reasoning.strip(), "suggested_title": title.strip()}
+    return covered

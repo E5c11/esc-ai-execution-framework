@@ -5,7 +5,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from esc_exec.claude_code_adapter import (
-    ClaudeCodeAdapter, ClaudeCodeClient, ClaudeCodeError, claude_auth_status, suggest_onboarding_answers, tools_for_policy,
+    ClaudeCodeAdapter, ClaudeCodeClient, ClaudeCodeError, claude_auth_status, suggest_architecture_coverage_gap,
+    suggest_onboarding_answers, suggest_work_type_drift, tools_for_policy,
 )
 from esc_exec.contracts import validate_contract
 from esc_exec.model import ManifestState
@@ -424,6 +425,166 @@ class SuggestOnboardingAnswersTests(unittest.TestCase):
         client = FakeAskClient({"result": "{}", "is_error": False})
         suggest_onboarding_answers(client, Path("/tmp"), ["core-api"], [])
         self.assertEqual(["Read", "Glob", "Grep"], client.calls[0][2])
+
+
+class SuggestWorkTypeDriftTests(unittest.TestCase):
+    def _call(self, client, work_type="fix", objective="Fix the broken login page.",
+               scope_boundary="No new auth providers.", completion_conditions=("Login works again.",)):
+        return suggest_work_type_drift(
+            client, Path("/tmp"), work_type, objective, scope_boundary, list(completion_conditions),
+        )
+
+    def test_no_drift_reported_is_returned_as_is(self):
+        client = FakeAskClient({"result": json.dumps({"drifted": False}), "is_error": False})
+        result = self._call(client)
+        self.assertEqual({"drifted": False, "suggested_work_type": None, "reasoning": None}, result)
+
+    def test_drift_with_valid_type_and_reasoning_is_returned(self):
+        payload = {
+            "drifted": True, "suggested_work_type": "feature",
+            "reasoning": "This adds a new password-reset flow, not just a correction.",
+        }
+        client = FakeAskClient({"result": json.dumps(payload), "is_error": False})
+        result = self._call(client)
+        self.assertEqual(payload, result)
+
+    def test_drift_without_reasoning_is_dropped_not_invented(self):
+        client = FakeAskClient({
+            "result": json.dumps({"drifted": True, "suggested_work_type": "feature", "reasoning": None}),
+            "is_error": False,
+        })
+        result = self._call(client)
+        self.assertFalse(result["drifted"])
+
+    def test_drift_with_reasoning_but_empty_string_is_dropped(self):
+        client = FakeAskClient({
+            "result": json.dumps({"drifted": True, "suggested_work_type": "feature", "reasoning": "   "}),
+            "is_error": False,
+        })
+        result = self._call(client)
+        self.assertFalse(result["drifted"])
+
+    def test_suggested_type_outside_known_work_types_is_dropped(self):
+        client = FakeAskClient({
+            "result": json.dumps({"drifted": True, "suggested_work_type": "rewrite-everything", "reasoning": "..."}),
+            "is_error": False,
+        })
+        result = self._call(client)
+        self.assertFalse(result["drifted"])
+
+    def test_suggested_type_same_as_declared_is_dropped(self):
+        client = FakeAskClient({
+            "result": json.dumps({"drifted": True, "suggested_work_type": "fix", "reasoning": "..."}),
+            "is_error": False,
+        })
+        result = self._call(client, work_type="fix")
+        self.assertFalse(result["drifted"])
+
+    def test_client_error_fails_open(self):
+        client = FakeAskClient(ClaudeCodeError("boom"))
+        result = self._call(client)
+        self.assertEqual({"drifted": False, "suggested_work_type": None, "reasoning": None}, result)
+
+    def test_is_error_fails_open(self):
+        client = FakeAskClient({"result": "irrelevant", "is_error": True})
+        result = self._call(client)
+        self.assertFalse(result["drifted"])
+
+    def test_non_json_result_fails_open(self):
+        client = FakeAskClient({"result": "not json at all", "is_error": False})
+        result = self._call(client)
+        self.assertFalse(result["drifted"])
+
+    def test_no_tools_are_granted(self):
+        client = FakeAskClient({"result": json.dumps({"drifted": False}), "is_error": False})
+        self._call(client)
+        self.assertEqual([], client.calls[0][2])
+
+    def test_prompt_includes_declared_fields_and_valid_work_types(self):
+        client = FakeAskClient({"result": json.dumps({"drifted": False}), "is_error": False})
+        self._call(client, work_type="fix", objective="Fix the broken login page.")
+        prompt = client.calls[0][1]
+        self.assertIn("Declared work_type: fix", prompt)
+        self.assertIn("Fix the broken login page.", prompt)
+        self.assertIn("feature, fix, refactor, maintenance, investigation", prompt)
+
+    def test_empty_completion_conditions_does_not_crash(self):
+        client = FakeAskClient({"result": json.dumps({"drifted": False}), "is_error": False})
+        result = self._call(client, completion_conditions=())
+        self.assertFalse(result["drifted"])
+        self.assertIn("(none stated)", client.calls[0][1])
+
+
+class SuggestArchitectureCoverageGapTests(unittest.TestCase):
+    RESOLVED_DOCUMENTS = [
+        {"id": "PAT-DATA-ACCESS", "path": "patterns/data-access-abstraction.md", "tags": ["data-access", "repository"]},
+    ]
+
+    def test_no_resolved_documents_is_a_gap_without_calling_out(self):
+        client = FakeAskClient({"result": "irrelevant", "is_error": False})
+        result = suggest_architecture_coverage_gap(client, Path("/tmp"), "Add background jobs.", [])
+        self.assertFalse(result["covered"])
+        self.assertIsNone(result["suggested_title"])
+        self.assertEqual([], client.calls)
+
+    def test_covered_is_returned_as_is(self):
+        client = FakeAskClient({"result": json.dumps({"covered": True}), "is_error": False})
+        result = suggest_architecture_coverage_gap(client, Path("/tmp"), "Add a REST endpoint.", self.RESOLVED_DOCUMENTS)
+        self.assertEqual({"covered": True, "reasoning": None, "suggested_title": None}, result)
+
+    def test_gap_with_reasoning_and_title_is_returned(self):
+        payload = {
+            "covered": False,
+            "reasoning": "None of these documents cover background job scheduling.",
+            "suggested_title": "Background Job Scheduling",
+        }
+        client = FakeAskClient({"result": json.dumps(payload), "is_error": False})
+        result = suggest_architecture_coverage_gap(client, Path("/tmp"), "Add background jobs.", self.RESOLVED_DOCUMENTS)
+        self.assertEqual(payload, result)
+
+    def test_gap_without_reasoning_is_dropped_not_invented(self):
+        client = FakeAskClient({
+            "result": json.dumps({"covered": False, "reasoning": None, "suggested_title": "X"}),
+            "is_error": False,
+        })
+        result = suggest_architecture_coverage_gap(client, Path("/tmp"), "Add background jobs.", self.RESOLVED_DOCUMENTS)
+        self.assertTrue(result["covered"])
+
+    def test_gap_without_suggested_title_is_dropped_not_invented(self):
+        client = FakeAskClient({
+            "result": json.dumps({"covered": False, "reasoning": "Not covered.", "suggested_title": None}),
+            "is_error": False,
+        })
+        result = suggest_architecture_coverage_gap(client, Path("/tmp"), "Add background jobs.", self.RESOLVED_DOCUMENTS)
+        self.assertTrue(result["covered"])
+
+    def test_client_error_fails_open_to_covered(self):
+        client = FakeAskClient(ClaudeCodeError("boom"))
+        result = suggest_architecture_coverage_gap(client, Path("/tmp"), "Add background jobs.", self.RESOLVED_DOCUMENTS)
+        self.assertTrue(result["covered"])
+
+    def test_is_error_fails_open_to_covered(self):
+        client = FakeAskClient({"result": "irrelevant", "is_error": True})
+        result = suggest_architecture_coverage_gap(client, Path("/tmp"), "Add background jobs.", self.RESOLVED_DOCUMENTS)
+        self.assertTrue(result["covered"])
+
+    def test_non_json_result_fails_open_to_covered(self):
+        client = FakeAskClient({"result": "not json at all", "is_error": False})
+        result = suggest_architecture_coverage_gap(client, Path("/tmp"), "Add background jobs.", self.RESOLVED_DOCUMENTS)
+        self.assertTrue(result["covered"])
+
+    def test_read_glob_grep_are_granted(self):
+        client = FakeAskClient({"result": json.dumps({"covered": True}), "is_error": False})
+        suggest_architecture_coverage_gap(client, Path("/tmp"), "Add a REST endpoint.", self.RESOLVED_DOCUMENTS)
+        self.assertEqual(["Read", "Glob", "Grep"], client.calls[0][2])
+
+    def test_prompt_includes_document_ids_and_objective(self):
+        client = FakeAskClient({"result": json.dumps({"covered": True}), "is_error": False})
+        suggest_architecture_coverage_gap(client, Path("/tmp"), "Add background jobs.", self.RESOLVED_DOCUMENTS)
+        prompt = client.calls[0][1]
+        self.assertIn("PAT-DATA-ACCESS", prompt)
+        self.assertIn("patterns/data-access-abstraction.md", prompt)
+        self.assertIn("Add background jobs.", prompt)
 
 
 class ClaudeAuthStatusTests(unittest.TestCase):
