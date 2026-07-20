@@ -375,6 +375,25 @@ class SuggestGroundableAnswersTurnTests(unittest.TestCase):
             )
         self.assertEqual({}, result["suggestions"])
 
+    def test_architecture_style_flows_through_the_turn_based_path(self):
+        # Confirms the new `architecture_style` GROUNDABLE_FIELDS registry entry
+        # (esc_exec/claude_code_adapter.py) flows through this turn-based twin
+        # automatically -- it shares build_groundable_prompt/parse_groundable_response
+        # with the one-shot suggest_onboarding_answers path, so a new registry
+        # entry alone should be enough, no new code path needed here.
+        payload = {"web-ui": {"architecture_style": "web-app"}}
+        client = FakeClaudeCodeClient(messages=_stream_json(text=json.dumps(payload), session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            result = suggest_groundable_answers_turn(client, Path(temp), {"architecture_style": {"web-ui"}})
+        self.assertEqual({"web-ui": {"architecture_style": "web-app"}}, result["suggestions"])
+
+    def test_architecture_style_invented_value_is_dropped_via_the_turn_based_path(self):
+        payload = {"web-ui": {"architecture_style": "microservice"}}
+        client = FakeClaudeCodeClient(messages=_stream_json(text=json.dumps(payload), session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            result = suggest_groundable_answers_turn(client, Path(temp), {"architecture_style": {"web-ui"}})
+        self.assertEqual({}, result["suggestions"])
+
 
 class SuggestFormTurnTests(unittest.TestCase):
     def _reply(self, human_text, form):

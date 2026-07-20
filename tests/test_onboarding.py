@@ -307,6 +307,80 @@ class NpmOnboardingTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def _register_architecture_framework(self, documents: list[dict], profile_doc_map: dict | None = None) -> Path:
+        registry = self.root.parent / f"registry-{id(self)}.yaml"
+        framework_root = self.root.parent / f"architecture-framework-{id(self)}"
+        framework_root.mkdir(exist_ok=True)
+        (framework_root / "index.json").write_text(
+            json.dumps({"generated": "2026-01-01T00:00:00Z", "count": len(documents), "documents": documents}),
+            encoding="utf-8",
+        )
+        (framework_root / "profile-doc-map.json").write_text(
+            json.dumps(profile_doc_map or {"frameworks": {}, "targets": {}}), encoding="utf-8",
+        )
+        add_route(registry, "frameworks", "esc-ai-architecture-framework", framework_root)
+        return registry
+
+    def _nextjs_architecture_framework(self) -> Path:
+        return self._register_architecture_framework(
+            [
+                {"id": "PLAT-WEB-NEXT", "type": "guide", "layer": "platforms",
+                 "path": "platforms/web/nextjs.md", "platform": ["web"],
+                 "architecture": ["web-app", "web-content"], "requires": [], "related": [], "tags": [],
+                 "status": ""},
+                {"id": "PLAT-WEB-NEXT-APP", "type": "guide", "layer": "platforms",
+                 "path": "platforms/web/nextjs-app.md", "platform": ["web"], "architecture": ["web-app"],
+                 "requires": ["PLAT-WEB-NEXT"], "related": [], "tags": [], "status": ""},
+            ],
+            profile_doc_map={"frameworks": {"ui": {"next": ["PLAT-WEB-NEXT"]}}, "targets": {}},
+        )
+
+    def test_detected_next_dependency_suggests_generic_doc_and_offers_style_question(self):
+        # See plan/active/npm-architecture-profile-detection.md task 5. Tier 1
+        # npm detection (detect_npm_frameworks_and_targets) should find `next` in
+        # package.json the same way Tier 1 Gradle detection already does for a
+        # recognized Gradle coordinate -- no "frameworks" question needed -- but
+        # PLAT-WEB-NEXT alone is ambiguous (shared by web-app/web-content), so an
+        # architecture_style question must still be offered.
+        (self.root / "package.json").write_text(
+            json.dumps({"name": "garage-triage", "dependencies": {"next": "15.0.0"}}), encoding="utf-8",
+        )
+        registry = self._nextjs_architecture_framework()
+        proposal = analyze_repository(self.root, registry)
+        self.assertEqual({"garage-triage": ["PLAT-WEB-NEXT"]}, proposal["profile_id_suggestions"])
+        fields = {q["field"] for q in proposal["semantic_questions"] if q["component_id"] == "garage-triage"}
+        self.assertNotIn("frameworks", fields)
+        self.assertIn("architecture_style", fields)
+
+    def test_apply_answers_adds_web_app_profile_when_style_answered(self):
+        registry = self._nextjs_architecture_framework()
+        proposal = analyze_repository(self.root, registry)
+        answers = {
+            "garage-triage": {
+                "purpose": "Turns free-text complaints into structured tickets.",
+                "frameworks": {"ui": "next"},
+                "architecture_style": "web-app",
+            },
+        }
+        apply_onboarding_answers(self.root, proposal, answers, registry)
+        manifest = load_yaml(component_manifest_path(self.root, "garage-triage"))
+        self.assertEqual(
+            ["PLAT-WEB-NEXT", "PLAT-WEB-NEXT-APP"], manifest["architecture"]["profile_ids"],
+        )
+
+    def test_apply_answers_skips_web_app_profile_when_style_unanswered(self):
+        registry = self._nextjs_architecture_framework()
+        proposal = analyze_repository(self.root, registry)
+        answers = {
+            "garage-triage": {
+                "purpose": "Turns free-text complaints into structured tickets.",
+                "frameworks": {"ui": "next"},
+            },
+        }
+        apply_onboarding_answers(self.root, proposal, answers, registry)
+        manifest = load_yaml(component_manifest_path(self.root, "garage-triage"))
+        self.assertEqual(["PLAT-WEB-NEXT"], manifest["architecture"]["profile_ids"])
+
     def test_fresh_npm_repository_is_all_create_with_questions(self):
         proposal = analyze_repository(self.root)
         self.assertEqual("garage-triage", proposal["repository"]["id"])

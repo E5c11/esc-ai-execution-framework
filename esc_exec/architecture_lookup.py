@@ -101,11 +101,25 @@ def load_profile_doc_map(framework_root: Path) -> dict[str, Any]:
 
 def suggest_profile_ids(
     frameworks: dict[str, str], targets: list[str], profile_doc_map: dict[str, Any],
+    architecture_style: str | None = None,
 ) -> list[str]:
     """
     Suggest architecture.profile_ids from declared/detected frameworks and targets,
     mirroring the architecture framework's own tools/lookup.py::profile_extra_docs.
     Order is first-seen, targets before frameworks, deduplicated.
+
+    `architecture_style` is optional and strictly additive (see
+    plan/active/npm-architecture-profile-detection.md design section 2): when
+    absent/None, behavior is identical to before this parameter existed. A bare
+    "uses Next.js" signal resolves only the generic `PLAT-WEB-NEXT` doc -- it
+    can't tell `web-app` (forms/Server-Actions-heavy) apart from `web-content`
+    (SSG/ISR-heavy) on its own. When the generic Next.js doc (`PLAT-WEB-NEXT`)
+    actually resolved from `frameworks` AND `architecture_style == "web-app"`,
+    the `web-app`-specific extension (`PLAT-WEB-NEXT-APP`) is additionally
+    suggested. `architecture_style == "web-content"` is deliberately not handled
+    here -- no confirmed doc ID for a `web-content`-specific Next.js extension
+    exists yet (open question 2 in the plan above); adding one would be a guess,
+    not a verified mapping.
     """
     suggested: list[str] = []
     target_map = profile_doc_map.get("targets", {})
@@ -118,4 +132,6 @@ def suggest_profile_ids(
         for doc_id in framework_map.get(field, {}).get(value, []):
             if doc_id not in suggested:
                 suggested.append(doc_id)
+    if architecture_style == "web-app" and "PLAT-WEB-NEXT" in suggested and "PLAT-WEB-NEXT-APP" not in suggested:
+        suggested.append("PLAT-WEB-NEXT-APP")
     return suggested

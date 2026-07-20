@@ -3,7 +3,9 @@ from tempfile import TemporaryDirectory
 import json
 import unittest
 
-from esc_exec.npm import detect_npm_repository, npm_component_structure
+from esc_exec.npm import (
+    detect_npm_frameworks_and_targets, detect_npm_repository, npm_component_structure,
+)
 
 
 class DetectNpmRepositoryTests(unittest.TestCase):
@@ -149,6 +151,73 @@ class NpmComponentStructureTests(unittest.TestCase):
             paths = npm_component_structure(root, Path("."))
             self.assertEqual("pages", paths["source_pages"])
             self.assertNotIn("source", paths)
+
+
+class NpmFrameworkDetectionTests(unittest.TestCase):
+    def test_missing_package_json_detects_nothing(self):
+        with TemporaryDirectory() as name:
+            frameworks, targets = detect_npm_frameworks_and_targets(Path(name) / "package.json")
+            self.assertEqual({}, frameworks)
+            self.assertEqual([], targets)
+
+    def test_malformed_json_detects_nothing(self):
+        with TemporaryDirectory() as name:
+            package_json = Path(name) / "package.json"
+            package_json.write_text("{not valid json", encoding="utf-8")
+            frameworks, targets = detect_npm_frameworks_and_targets(package_json)
+            self.assertEqual({}, frameworks)
+            self.assertEqual([], targets)
+
+    def test_detects_known_dependency(self):
+        with TemporaryDirectory() as name:
+            package_json = Path(name) / "package.json"
+            package_json.write_text(
+                json.dumps({"dependencies": {"next": "14.0.0"}}), encoding="utf-8",
+            )
+            frameworks, targets = detect_npm_frameworks_and_targets(package_json)
+            self.assertEqual({"ui": "next"}, frameworks)
+            self.assertEqual([], targets)
+
+    def test_unrecognized_dependency_is_not_reported(self):
+        with TemporaryDirectory() as name:
+            package_json = Path(name) / "package.json"
+            package_json.write_text(
+                json.dumps({"dependencies": {"totally-unmapped-lib": "1.0.0"}}), encoding="utf-8",
+            )
+            frameworks, _ = detect_npm_frameworks_and_targets(package_json)
+            self.assertEqual({}, frameworks)
+
+    def test_dev_dependency_is_also_detected(self):
+        with TemporaryDirectory() as name:
+            package_json = Path(name) / "package.json"
+            package_json.write_text(
+                json.dumps({"devDependencies": {"react-hook-form": "7.0.0"}}), encoding="utf-8",
+            )
+            frameworks, _ = detect_npm_frameworks_and_targets(package_json)
+            self.assertEqual({"forms": "react-hook-form"}, frameworks)
+
+    def test_both_known_frameworks_detected_at_once(self):
+        with TemporaryDirectory() as name:
+            package_json = Path(name) / "package.json"
+            package_json.write_text(
+                json.dumps({
+                    "dependencies": {"next": "14.0.0"},
+                    "devDependencies": {"react-hook-form": "7.0.0"},
+                }),
+                encoding="utf-8",
+            )
+            frameworks, targets = detect_npm_frameworks_and_targets(package_json)
+            self.assertEqual({"ui": "next", "forms": "react-hook-form"}, frameworks)
+            self.assertEqual([], targets)
+
+    def test_targets_is_always_empty(self):
+        with TemporaryDirectory() as name:
+            package_json = Path(name) / "package.json"
+            package_json.write_text(
+                json.dumps({"dependencies": {"next": "14.0.0"}}), encoding="utf-8",
+            )
+            _, targets = detect_npm_frameworks_and_targets(package_json)
+            self.assertEqual([], targets)
 
 
 if __name__ == "__main__":

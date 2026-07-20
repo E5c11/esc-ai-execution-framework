@@ -5,8 +5,9 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from esc_exec.claude_code_adapter import (
-    ClaudeCodeAdapter, ClaudeCodeClient, ClaudeCodeError, claude_auth_status, suggest_architecture_coverage_gap,
-    suggest_onboarding_answers, suggest_work_type_drift, tools_for_policy,
+    ClaudeCodeAdapter, ClaudeCodeClient, ClaudeCodeError, _extract_architecture_style, _suggest_groundable_answers,
+    claude_auth_status, suggest_architecture_coverage_gap, suggest_onboarding_answers, suggest_work_type_drift,
+    tools_for_policy,
 )
 from esc_exec.contracts import validate_contract
 from esc_exec.model import ManifestState
@@ -425,6 +426,75 @@ class SuggestOnboardingAnswersTests(unittest.TestCase):
         client = FakeAskClient({"result": "{}", "is_error": False})
         suggest_onboarding_answers(client, Path("/tmp"), ["core-api"], [])
         self.assertEqual(["Read", "Glob", "Grep"], client.calls[0][2])
+
+
+class ExtractArchitectureStyleTests(unittest.TestCase):
+    def test_extracts_web_app(self):
+        self.assertEqual({"architecture_style": "web-app"}, _extract_architecture_style({"architecture_style": "web-app"}))
+
+    def test_extracts_web_content(self):
+        self.assertEqual(
+            {"architecture_style": "web-content"}, _extract_architecture_style({"architecture_style": "web-content"}),
+        )
+
+    def test_missing_key_is_absent(self):
+        self.assertEqual({}, _extract_architecture_style({}))
+
+    def test_invalid_string_value_is_dropped_not_coerced(self):
+        self.assertEqual({}, _extract_architecture_style({"architecture_style": "web-something-else"}))
+
+    def test_wrong_type_is_dropped(self):
+        self.assertEqual({}, _extract_architecture_style({"architecture_style": ["web-app"]}))
+        self.assertEqual({}, _extract_architecture_style({"architecture_style": None}))
+        self.assertEqual({}, _extract_architecture_style({"architecture_style": 1}))
+
+
+class ArchitectureStyleGroundableFieldFlowTests(unittest.TestCase):
+    # Confirms the new `architecture_style` GROUNDABLE_FIELDS entry flows through
+    # the shared one-shot engine (`_suggest_groundable_answers`, the function
+    # `suggest_onboarding_answers` itself delegates to) automatically -- adding a
+    # registry entry, not a new bespoke code path. The turn-based twin
+    # (`suggest_groundable_answers_turn` in esc_exec/conversation.py) is verified
+    # separately in tests/test_conversation.py since it shares this exact
+    # prompt-building/parsing machinery.
+    def test_architecture_style_is_requested_and_extracted(self):
+        client = FakeAskClient({
+            "result": json.dumps({"web-ui": {"architecture_style": "web-app"}}),
+            "is_error": False,
+        })
+        result = _suggest_groundable_answers(client, Path("/tmp"), {"architecture_style": {"web-ui"}})
+        self.assertEqual({"web-ui": {"architecture_style": "web-app"}}, result)
+        self.assertIn("architecture_style", client.calls[0][1])
+        self.assertIn("web-ui", client.calls[0][1])
+
+    def test_unanswered_architecture_style_is_a_valid_absence_not_an_error(self):
+        client = FakeAskClient({"result": json.dumps({"web-ui": {}}), "is_error": False})
+        result = _suggest_groundable_answers(client, Path("/tmp"), {"architecture_style": {"web-ui"}})
+        self.assertEqual({}, result)
+
+    def test_invented_style_value_is_never_smuggled_through(self):
+        client = FakeAskClient({
+            "result": json.dumps({"web-ui": {"architecture_style": "microservice"}}),
+            "is_error": False,
+        })
+        result = _suggest_groundable_answers(client, Path("/tmp"), {"architecture_style": {"web-ui"}})
+        self.assertEqual({}, result)
+
+    def test_architecture_style_never_leaks_to_a_component_not_asked_about_it(self):
+        client = FakeAskClient({
+            "result": json.dumps({
+                "web-ui": {"purpose": "Owns the web UI.", "architecture_style": "web-content"},
+                "core-api": {"purpose": "Owns the core API.", "architecture_style": "web-app"},
+            }),
+            "is_error": False,
+        })
+        result = _suggest_groundable_answers(
+            client, Path("/tmp"), {"purpose": {"web-ui", "core-api"}, "architecture_style": {"web-ui"}},
+        )
+        self.assertEqual({
+            "web-ui": {"purpose": "Owns the web UI.", "architecture_style": "web-content"},
+            "core-api": {"purpose": "Owns the core API."},
+        }, result)
 
 
 class SuggestWorkTypeDriftTests(unittest.TestCase):

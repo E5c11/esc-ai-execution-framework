@@ -14,6 +14,61 @@ def _read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+# Maps a detected npm package name to the (field, value) pair `suggest_profile_ids`
+# expects -- mirrors the architecture framework's own profile-doc-map.json vocabulary
+# as of 2026-07-20, same as GRADLE_COORDINATE_FRAMEWORKS (esc_exec/dependencies.py). A
+# package not listed here is simply not detected, never miscategorized -- this table
+# will drift out of sync as that framework's vocabulary grows and needs updating
+# alongside it, not silently.
+NPM_PACKAGE_FRAMEWORKS: tuple[tuple[str, str, str], ...] = (
+    ("next", "ui", "next"),
+    ("react-hook-form", "forms", "react-hook-form"),
+)
+
+
+def detect_npm_frameworks_and_targets(package_json_path: Path) -> tuple[dict[str, str], list[str]]:
+    """
+    Best-effort static detection of an npm component's frameworks-in-use directly
+    from its package.json -- Tier 1 of
+    plan/onboarding-answer-detection-and-suggestion.md, the npm counterpart to
+    detect_gradle_frameworks_and_targets (esc_exec/dependencies.py), added by
+    plan/npm-architecture-profile-detection.md. Returns ({}, []) if the file
+    doesn't exist, can't be read, or isn't valid JSON; never raises, since this is
+    an optional enrichment, not a required step.
+
+    Reads both "dependencies" and "devDependencies" and matches each package name
+    against NPM_PACKAGE_FRAMEWORKS by exact string equality -- unlike Gradle's
+    "group:artifact" coordinates, npm package names have no meaningful prefix
+    structure to match against, so this is a plain lookup, not a startswith scan.
+    Only packages in NPM_PACKAGE_FRAMEWORKS are ever detected -- an unrecognized
+    dependency is silently not reported, not guessed at. As with the Gradle
+    version, the first match per field wins if more than one installed package
+    happened to map to the same field.
+
+    targets is always [] -- there is no npm-side equivalent yet of Gradle's KMP-iOS
+    target detection (see plan/npm-architecture-profile-detection.md, design
+    section 1); returned only to keep this function's contract shaped exactly like
+    detect_gradle_frameworks_and_targets's for FRAMEWORK_DETECTORS dispatch.
+    """
+    package_json = _read_json(package_json_path)
+    if not package_json:
+        return {}, []
+
+    names: set[str] = set()
+    for key in ("dependencies", "devDependencies"):
+        section = package_json.get(key)
+        if isinstance(section, dict):
+            names |= {name for name in section if isinstance(name, str)}
+
+    frameworks: dict[str, str] = {}
+    for package_name, field, value in NPM_PACKAGE_FRAMEWORKS:
+        if field in frameworks:
+            continue
+        if package_name in names:
+            frameworks[field] = value
+    return frameworks, []
+
+
 def _package_name(package_json: dict, fallback: str) -> str:
     name = package_json.get("name")
     return name if isinstance(name, str) and name.strip() else fallback

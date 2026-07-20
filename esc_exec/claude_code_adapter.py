@@ -426,6 +426,13 @@ def _extract_frameworks_targets(entry: dict[str, Any]) -> dict[str, Any]:
     return answer
 
 
+def _extract_architecture_style(entry: dict[str, Any]) -> dict[str, Any]:
+    style = entry.get("architecture_style")
+    if style in ("web-app", "web-content"):
+        return {"architecture_style": style}
+    return {}
+
+
 GROUNDABLE_FIELDS: list[GroundableField] = [
     GroundableField(
         key="purpose",
@@ -451,6 +458,21 @@ GROUNDABLE_FIELDS: list[GroundableField] = [
             "confident answer otherwise."
         ),
         extract=_extract_frameworks_targets,
+    ),
+    GroundableField(
+        key="architecture_style",
+        needed_line="Components needing an `architecture_style` classification",
+        guidance=(
+            "architecture_style: read the component's real source (route handlers, "
+            "Server Actions, page/data-fetching shape) and classify it as EXACTLY "
+            'one of "web-app" (forms/mutations/Server-Actions-heavy -- the '
+            'component writes data, not just displays it) or "web-content" '
+            "(SSG/ISR/content-display-heavy -- the component mainly renders "
+            "content and doesn't drive mutations). Only answer if you're genuinely "
+            "confident from real source; omitting this key is a valid, confident "
+            "response -- never guess."
+        ),
+        extract=_extract_architecture_style,
     ),
 ]
 

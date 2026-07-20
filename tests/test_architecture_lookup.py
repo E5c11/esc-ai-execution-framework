@@ -118,6 +118,38 @@ class ArchitectureLookupTests(unittest.TestCase):
         profile_doc_map = {"frameworks": {"network": {"ktor": ["PLAT-MOB-HTTP"]}}, "targets": {}}
         self.assertEqual([], suggest_profile_ids({"network": "unknown-lib"}, [], profile_doc_map))
 
+    def test_suggest_profile_ids_architecture_style_absent_is_unchanged_regression(self):
+        # architecture_style=None (the default) must behave identically to before
+        # this parameter existed -- strictly additive, never a change to today's
+        # default path (plan/active/npm-architecture-profile-detection.md design
+        # section 2).
+        profile_doc_map = {"frameworks": {"ui": {"next": ["PLAT-WEB-NEXT"]}}, "targets": {}}
+        self.assertEqual(["PLAT-WEB-NEXT"], suggest_profile_ids({"ui": "next"}, [], profile_doc_map))
+        self.assertEqual(
+            ["PLAT-WEB-NEXT"], suggest_profile_ids({"ui": "next"}, [], profile_doc_map, architecture_style=None),
+        )
+
+    def test_suggest_profile_ids_web_app_style_adds_next_app_when_next_resolves(self):
+        profile_doc_map = {"frameworks": {"ui": {"next": ["PLAT-WEB-NEXT"]}}, "targets": {}}
+        suggested = suggest_profile_ids({"ui": "next"}, [], profile_doc_map, architecture_style="web-app")
+        self.assertEqual(["PLAT-WEB-NEXT", "PLAT-WEB-NEXT-APP"], suggested)
+
+    def test_suggest_profile_ids_web_app_style_has_no_effect_without_next_resolving(self):
+        # The style flag must never add PLAT-WEB-NEXT-APP unless the generic
+        # Next.js doc actually resolved first -- a web-app style answer for a
+        # non-Next.js framework signal is a no-op, not an invented addition.
+        profile_doc_map = {"frameworks": {"network": {"ktor": ["PLAT-MOB-HTTP"]}}, "targets": {}}
+        suggested = suggest_profile_ids({"network": "ktor"}, [], profile_doc_map, architecture_style="web-app")
+        self.assertEqual(["PLAT-MOB-HTTP"], suggested)
+
+    def test_suggest_profile_ids_web_content_style_does_not_add_next_app(self):
+        # web-content is deliberately not handled (no confirmed doc ID exists yet
+        # -- open question 2 in the plan); must not fall back to guessing
+        # PLAT-WEB-NEXT-APP or any other ID.
+        profile_doc_map = {"frameworks": {"ui": {"next": ["PLAT-WEB-NEXT"]}}, "targets": {}}
+        suggested = suggest_profile_ids({"ui": "next"}, [], profile_doc_map, architecture_style="web-content")
+        self.assertEqual(["PLAT-WEB-NEXT"], suggested)
+
     def test_load_profile_doc_map_reads_a_real_file(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)

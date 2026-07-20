@@ -16,6 +16,7 @@ from esc_exec.manifests import (
     component_manifest_path, component_manifest_relative_path, generate_gradle_manifests,
     generate_npm_manifests, repository_manifest_path, repository_manifest_relative_path,
 )
+from esc_exec.npm import detect_npm_frameworks_and_targets
 from esc_exec.registry import resolve_route
 from esc_exec.task_context import generate_gradle_verification_profile
 from esc_exec.workflow_bootstrap import INSTRUCTIONS_PATH, bootstrap_workflow_inheritance
@@ -31,6 +32,44 @@ MANIFEST_GENERATORS = {
     "gradle": generate_gradle_manifests,
     "npm": generate_npm_manifests,
 }
+
+# See plan/active/npm-architecture-profile-detection.md design section 1. Mirrors
+# MANIFEST_GENERATORS' dispatch-by-adapter-name shape so _architecture_signals'
+# Tier 1 framework/profile detection is generic too, instead of hardcoding Gradle
+# the way it did before this plan (the same class of bug MANIFEST_GENERATORS
+# itself was introduced to fix). The filename table is separate from the detector
+# table because each adapter's detector reads a differently-named build file from
+# the same component-relative directory.
+FRAMEWORK_DETECTORS = {
+    "gradle": detect_gradle_frameworks_and_targets,
+    "npm": detect_npm_frameworks_and_targets,
+}
+FRAMEWORK_DETECTOR_FILENAMES = {
+    "gradle": "build.gradle.kts",
+    "npm": "package.json",
+}
+
+# See plan/active/npm-architecture-profile-detection.md design section 2. The one
+# known case where a resolved profile-id suggestion is genuinely ambiguous without
+# an extra signal: PLAT-WEB-NEXT is shared by both the web-app and web-content
+# architectures (see its own frontmatter), so resolving it is never enough on its
+# own to also suggest the more specific PLAT-WEB-NEXT-APP doc. Hardcoded to this
+# one confirmed instance rather than a generalized table-driven check -- per that
+# plan's open question 3, not worth generalizing for a hypothetical second case
+# that doesn't exist yet.
+NEXTJS_GENERIC_PROFILE_ID = "PLAT-WEB-NEXT"
+
+
+def _architecture_style_question(component_id: str) -> dict[str, Any]:
+    return {
+        "component_id": component_id, "field": "architecture_style",
+        "prompt": (
+            f"Is `{component_id}` primarily a web-app (forms/mutations, Server "
+            "Actions) or web-content (static/SSG/ISR display) component? (optional "
+            "-- press Enter to skip)\n"
+            "    Used to suggest the more specific Next.js web-app architecture-profile doc."
+        ),
+    }
 
 
 def _merged_components(
@@ -226,6 +265,7 @@ def _deprecated_component_entries(root: Path, components: list[tuple[str, Path]]
 
 def _architecture_signals(
     root: Path, components: list[tuple[str, Path]], registry_path: Path | None,
+    adapter: BuildSystemAdapter | None = None,
 ) -> tuple[dict[str, list[str]], list[dict[str, Any]]]:
     """
     For each component lacking an already-authored architecture.profile_ids:
@@ -233,12 +273,20 @@ def _architecture_signals(
       (no question needed -- the repository-level profile already answers this);
     - otherwise, try Tier 1 static detection (see
       plan/onboarding-answer-detection-and-suggestion.md) against the component's own
-      build file -- if that resolves a non-empty suggestion, offer it, no question
-      needed either;
+      build file, dispatched by adapter (FRAMEWORK_DETECTORS) -- if that resolves a
+      non-empty suggestion, offer it, no question needed either;
     - otherwise, if the architecture framework is resolvable at all, ask one bounded
       question for the frameworks/targets info needed to suggest profile_ids;
     - if the architecture framework can't be resolved, neither suggest nor ask --
       there's nothing safe to derive or offer.
+
+    Whenever a resolved (or about-to-be-asked-for) suggestion could plausibly
+    include the Next.js generic doc (NEXTJS_GENERIC_PROFILE_ID), an additional
+    architecture_style question is offered alongside -- see
+    plan/active/npm-architecture-profile-detection.md design section 2: that doc
+    alone can't tell a web-app component from a web-content one, and this is the
+    one confirmed case where that distinction actually changes which profile gets
+    suggested.
     """
     suggestions: dict[str, list[str]] = {}
     questions: list[dict[str, Any]] = []
@@ -251,17 +299,23 @@ def _architecture_signals(
         else []
     )
 
+    detector = FRAMEWORK_DETECTORS.get(adapter.name) if adapter is not None else None
+    detector_filename = FRAMEWORK_DETECTOR_FILENAMES.get(adapter.name) if adapter is not None else None
+
     for component_id, relative in components:
         if _existing_profile_ids(root, component_id):
             continue
         if imported is not None:
             if repository_suggestion:
                 suggestions[component_id] = repository_suggestion
+                if NEXTJS_GENERIC_PROFILE_ID in repository_suggestion:
+                    questions.append(_architecture_style_question(component_id))
             continue
         if profile_doc_map is None:
             continue
-        detected_frameworks, detected_targets = detect_gradle_frameworks_and_targets(
-            root / relative / "build.gradle.kts"
+        detected_frameworks, detected_targets = (
+            detector(root / relative / detector_filename) if detector is not None and detector_filename is not None
+            else ({}, [])
         )
         detected_suggestion = (
             suggest_profile_ids(detected_frameworks, detected_targets, profile_doc_map)
@@ -270,6 +324,8 @@ def _architecture_signals(
         )
         if detected_suggestion:
             suggestions[component_id] = detected_suggestion
+            if NEXTJS_GENERIC_PROFILE_ID in detected_suggestion:
+                questions.append(_architecture_style_question(component_id))
             continue
         questions.append({
             "component_id": component_id, "field": "frameworks",
@@ -279,6 +335,16 @@ def _architecture_signals(
                 "    Example: network:ktor, database:room, di:hilt"
             ),
         })
+        if adapter is not None and adapter.name == "npm":
+            # Frameworks aren't known yet at this point, so whether this is even
+            # the ambiguous Next.js case can't be checked here (unlike the two
+            # already-resolved branches above) -- asked unconditionally for npm
+            # components instead, since the AI can determine frameworks and style
+            # together in one grounded pass (see GROUNDABLE_FIELDS in
+            # claude_code_adapter.py) rather than needing a second round-trip once
+            # frameworks resolves. Gated to npm specifically -- "web-app vs.
+            # web-content" is meaningless for a Gradle/mobile component.
+            questions.append(_architecture_style_question(component_id))
     return suggestions, questions
 
 
@@ -306,7 +372,7 @@ def analyze_repository(
     repository_entry = _repository_file_entry(root, repository_id, components)
     component_entries, questions = _component_file_entries(root, components, adapter)
     deprecated_entries = _deprecated_component_entries(root, components)
-    profile_id_suggestions, architecture_questions = _architecture_signals(root, components, registry_path)
+    profile_id_suggestions, architecture_questions = _architecture_signals(root, components, registry_path, adapter)
     return {
         "schema_version": 1,
         "repository": {"id": repository_id, "type": adapter.repository_type},
@@ -397,9 +463,12 @@ def apply_onboarding_answers(
         if not manifest.get("architecture", {}).get("profile_ids"):
             frameworks = answer.get("frameworks", {})
             targets = answer.get("targets", [])
+            architecture_style = answer.get("architecture_style")
             attempted = bool(frameworks) or bool(targets) or imported is not None
             if (frameworks or targets) and profile_doc_map is not None:
-                suggested = suggest_profile_ids(frameworks, targets, profile_doc_map)
+                suggested = suggest_profile_ids(
+                    frameworks, targets, profile_doc_map, architecture_style=architecture_style,
+                )
             else:
                 suggested = repository_suggestion
             if suggested:
