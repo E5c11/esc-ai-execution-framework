@@ -8,6 +8,7 @@ from esc_exec.claude_code_adapter import (
     ClaudeCodeClient, ClaudeCodeError, build_groundable_prompt, extract_json_object,
     groundable_component_ids, parse_groundable_response, result_message,
 )
+from esc_exec.planning import WORK_TYPES
 from esc_exec.roadmap import save_conversation_summary
 
 # Real, API-reported context-window consumption thresholds only -- no fabricated
@@ -322,3 +323,125 @@ def suggest_groundable_answers_turn(
     if not turn["is_error"] and turn["text"]:
         suggestions = parse_groundable_response(turn["text"], applicability, fields)
     return {"suggestions": suggestions, "session_id": turn["session_id"]}
+
+
+# plan/active/form-driven-planning-conversation.md design section 2. A literal
+# marker line, not just "the last JSON blob in the text" -- the reply itself may
+# legitimately contain code fences or other text a naive scan could misparse as
+# the trailer, so an unambiguous, unlikely-to-occur-naturally marker is used to
+# split the two halves cleanly.
+FORM_TRAILER_MARKER = "---FORM---"
+FORM_FIELDS = ("work_type", "objective", "components", "scope_boundary", "completion_conditions", "rollout_needs")
+
+
+def suggest_form_turn(
+    client: ClaudeCodeClient, repository: Path, message: str, current_objective: str,
+    suggested_components: list[str], resume_session_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    One turn of the form-driven planning conversation (plan/active/form-driven-
+    planning-conversation.md design section 2). Each turn's prompt instructs the
+    model to end its reply with a `FORM_TRAILER_MARKER` line, then a fenced JSON
+    object reporting current known values for every `FORM_FIELDS` entry (null/
+    omitted for anything not yet determined) -- a per-turn trailer, not a
+    separate extraction call, so the caller can notice completion itself
+    without doubling the turn count (see that plan's "no new live per-question
+    call" discipline -- doubling calls would double however many `--resume`
+    turns a conversation takes).
+
+    `components`/`scope_boundary`/`objective` are never asked about blind:
+    `suggested_components` (the repository's own deterministic routing
+    suggestion, from `route_objective` -- computed by the caller, this
+    function has no repository access of its own, tools=[]) and
+    `current_objective` are fed in as context the model confirms or revises,
+    matching this system's onboarding-side "AI is enrichment on top of a
+    deterministic signal, never re-deriving it from scratch" discipline.
+
+    Returns {"reply": str, "form": dict[str, Any], "session_id": str | None,
+    "threshold": "hard" | "soft" | None}. `reply` is the human-visible portion
+    only -- the trailer is never shown to the human. `form` only contains keys
+    the model reported a genuinely valid, non-null value for *this turn*
+    (validated against each field's real shape -- work_type against the real
+    WORK_TYPES, completion_conditions/components must be non-empty lists of
+    strings, etc.); the caller merges across turns. `threshold` is `run_turn`'s
+    own real context-consumption signal, passed straight through -- the same
+    soft/hard safety net `run_planning_conversation_interactive` already uses,
+    so this conversation can't run unbounded either.
+    Fails open on any turn failure, and on a missing or unparseable trailer --
+    both return an empty form, never a crash, so a malformed trailer degrades
+    to "nothing new confirmed this turn," not a broken conversation.
+    """
+    prompt = "\n".join([
+        "You are having a conversation with a developer to help them plan a "
+        "software change to a specific repository. Steer the conversation "
+        "toward filling in the form below -- ask about whatever's still "
+        "missing, don't re-ask about anything already filled in, and keep "
+        "your replies conversational and brief.",
+        "",
+        "Form fields:",
+        "- work_type: one of feature, fix, refactor, maintenance, investigation",
+        "- objective: a clear, concise description of the change",
+        "- components: which of this repository's components it touches",
+        "- scope_boundary: what's explicitly out of scope for this change",
+        "- completion_conditions: what must be true for this to be considered done (a list)",
+        "- rollout_needs: any rollout/deployment needs (optional -- fine to leave unset)",
+        "",
+        f"Starting objective: {current_objective}",
+        "Components this repository's own routing already suggests might be "
+        f"relevant (confirm or override, don't ask blind): {', '.join(suggested_components) or '(none matched)'}",
+        "",
+        "If the conversation drifts into something that sounds out of scope "
+        "given what's already been discussed, say so explicitly rather than "
+        "silently going along with it.",
+        "",
+        "After your reply to the developer, on its own line write exactly "
+        f"`{FORM_TRAILER_MARKER}`, then a fenced JSON object with the form's "
+        "current full state (not just what changed this turn) -- use null for "
+        "anything not yet determined, never invent a value:",
+        '```json',
+        '{"work_type": "..."|null, "objective": "..."|null, "components": [...]|null, '
+        '"scope_boundary": "..."|null, "completion_conditions": [...]|null, '
+        '"rollout_needs": "..."|null}',
+        '```',
+        "",
+        f"Developer: {message}",
+    ])
+    turn = run_turn(client, repository, prompt, tools=[], resume_session_id=resume_session_id)
+    if turn["is_error"] or not turn["text"]:
+        return {"reply": "", "form": {}, "session_id": turn["session_id"], "threshold": None}
+
+    text = turn["text"]
+    marker_index = text.find(FORM_TRAILER_MARKER)
+    if marker_index == -1:
+        return {"reply": text.strip(), "form": {}, "session_id": turn["session_id"], "threshold": turn["threshold"]}
+    reply = text[:marker_index].strip()
+    trailer_text = text[marker_index + len(FORM_TRAILER_MARKER):]
+    try:
+        parsed = json.loads(extract_json_object(trailer_text))
+    except json.JSONDecodeError:
+        return {"reply": reply, "form": {}, "session_id": turn["session_id"], "threshold": turn["threshold"]}
+    if not isinstance(parsed, dict):
+        return {"reply": reply, "form": {}, "session_id": turn["session_id"], "threshold": turn["threshold"]}
+
+    form: dict[str, Any] = {}
+    if parsed.get("work_type") in WORK_TYPES:
+        form["work_type"] = parsed["work_type"]
+    objective = parsed.get("objective")
+    if isinstance(objective, str) and objective.strip():
+        form["objective"] = objective.strip()
+    components = parsed.get("components")
+    if isinstance(components, list) and components and all(isinstance(c, str) and c.strip() for c in components):
+        form["components"] = components
+    scope_boundary = parsed.get("scope_boundary")
+    if isinstance(scope_boundary, str) and scope_boundary.strip():
+        form["scope_boundary"] = scope_boundary.strip()
+    completion_conditions = parsed.get("completion_conditions")
+    if (
+        isinstance(completion_conditions, list) and completion_conditions
+        and all(isinstance(c, str) and c.strip() for c in completion_conditions)
+    ):
+        form["completion_conditions"] = completion_conditions
+    rollout_needs = parsed.get("rollout_needs")
+    if isinstance(rollout_needs, str) and rollout_needs.strip():
+        form["rollout_needs"] = rollout_needs.strip()
+    return {"reply": reply, "form": form, "session_id": turn["session_id"], "threshold": turn["threshold"]}

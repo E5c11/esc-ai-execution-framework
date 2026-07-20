@@ -5,9 +5,9 @@ import unittest
 
 from esc_exec.claude_code_adapter import ClaudeCodeError
 from esc_exec.conversation import (
-    HARD_CONTEXT_THRESHOLD, SOFT_CONTEXT_THRESHOLD,
+    FORM_TRAILER_MARKER, HARD_CONTEXT_THRESHOLD, SOFT_CONTEXT_THRESHOLD,
     compact_conversation, context_consumption_ratio, context_window_from_usage, run_turn,
-    suggest_groundable_answers_turn, suggest_unresolved_components, threshold_crossed,
+    suggest_form_turn, suggest_groundable_answers_turn, suggest_unresolved_components, threshold_crossed,
 )
 from esc_exec.roadmap import load_conversation_summary
 
@@ -374,6 +374,126 @@ class SuggestGroundableAnswersTurnTests(unittest.TestCase):
                 FakeRaisingClient(), Path(temp), {"purpose": {"core-api"}, "frameworks_targets": set()},
             )
         self.assertEqual({}, result["suggestions"])
+
+
+class SuggestFormTurnTests(unittest.TestCase):
+    def _reply(self, human_text, form):
+        return f"{human_text}\n{FORM_TRAILER_MARKER}\n```json\n{json.dumps(form)}\n```"
+
+    def test_reply_is_split_cleanly_from_the_trailer(self):
+        text = self._reply("What components does this touch?", {
+            "work_type": None, "objective": None, "components": None,
+            "scope_boundary": None, "completion_conditions": None, "rollout_needs": None,
+        })
+        client = FakeClaudeCodeClient(messages=_stream_json(text=text, session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            result = suggest_form_turn(client, Path(temp), "Add CSV export.", "Add CSV export.", ["content"])
+        self.assertEqual("What components does this touch?", result["reply"])
+        self.assertEqual({}, result["form"])
+        self.assertEqual("ses-1", result["session_id"])
+
+    def test_full_form_is_captured(self):
+        form_payload = {
+            "work_type": "feature", "objective": "Add CSV export to the admin panel.",
+            "components": ["content", "export"], "scope_boundary": "No PDF export.",
+            "completion_conditions": ["Export button works", "CSV matches schema"],
+            "rollout_needs": "Feature-flagged.",
+        }
+        text = self._reply("Got it, that's everything I need.", form_payload)
+        client = FakeClaudeCodeClient(messages=_stream_json(text=text, session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            result = suggest_form_turn(client, Path(temp), "Add CSV export.", "Add CSV export.", [])
+        self.assertEqual(form_payload, result["form"])
+
+    def test_invalid_work_type_is_dropped_not_invented(self):
+        text = self._reply("...", {
+            "work_type": "rewrite-everything", "objective": None, "components": None,
+            "scope_boundary": None, "completion_conditions": None, "rollout_needs": None,
+        })
+        client = FakeClaudeCodeClient(messages=_stream_json(text=text, session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            result = suggest_form_turn(client, Path(temp), "x", "x", [])
+        self.assertNotIn("work_type", result["form"])
+
+    def test_empty_completion_conditions_list_is_dropped(self):
+        text = self._reply("...", {
+            "work_type": None, "objective": None, "components": None,
+            "scope_boundary": None, "completion_conditions": [], "rollout_needs": None,
+        })
+        client = FakeClaudeCodeClient(messages=_stream_json(text=text, session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            result = suggest_form_turn(client, Path(temp), "x", "x", [])
+        self.assertNotIn("completion_conditions", result["form"])
+
+    def test_missing_trailer_returns_full_text_as_reply_and_empty_form(self):
+        client = FakeClaudeCodeClient(messages=_stream_json(text="Just a plain reply, no trailer.", session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            result = suggest_form_turn(client, Path(temp), "x", "x", [])
+        self.assertEqual("Just a plain reply, no trailer.", result["reply"])
+        self.assertEqual({}, result["form"])
+
+    def test_malformed_trailer_json_fails_open(self):
+        text = f"Some reply.\n{FORM_TRAILER_MARKER}\nnot valid json at all"
+        client = FakeClaudeCodeClient(messages=_stream_json(text=text, session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            result = suggest_form_turn(client, Path(temp), "x", "x", [])
+        self.assertEqual("Some reply.", result["reply"])
+        self.assertEqual({}, result["form"])
+
+    def test_turn_error_fails_open(self):
+        with TemporaryDirectory() as temp:
+            result = suggest_form_turn(FakeRaisingClient(), Path(temp), "x", "x", [])
+        self.assertEqual("", result["reply"])
+        self.assertEqual({}, result["form"])
+
+    def test_no_tools_are_granted(self):
+        text = self._reply("...", {
+            "work_type": None, "objective": None, "components": None,
+            "scope_boundary": None, "completion_conditions": None, "rollout_needs": None,
+        })
+        client = FakeClaudeCodeClient(messages=_stream_json(text=text, session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            suggest_form_turn(client, Path(temp), "x", "x", [])
+        self.assertEqual([[]], client.tool_grants)
+
+    def test_resumes_the_given_session(self):
+        text = self._reply("...", {
+            "work_type": None, "objective": None, "components": None,
+            "scope_boundary": None, "completion_conditions": None, "rollout_needs": None,
+        })
+        client = FakeClaudeCodeClient(messages=_stream_json(text=text, session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            suggest_form_turn(client, Path(temp), "x", "x", [], resume_session_id="ses-1")
+        self.assertEqual(["ses-1"], client.resume_ids)
+
+    def test_hard_threshold_is_passed_through(self):
+        window = 1000
+        consumed = int(window * HARD_CONTEXT_THRESHOLD)
+        text = self._reply("...", {
+            "work_type": None, "objective": None, "components": None,
+            "scope_boundary": None, "completion_conditions": None, "rollout_needs": None,
+        })
+        client = FakeClaudeCodeClient(messages=_stream_json(
+            text=text, session_id="ses-1",
+            usage={"input_tokens": consumed, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0},
+            model_usage={"claude-sonnet-5": {"contextWindow": window}},
+        ))
+        with TemporaryDirectory() as temp:
+            result = suggest_form_turn(client, Path(temp), "x", "x", [])
+        self.assertEqual("hard", result["threshold"])
+
+    def test_prompt_includes_objective_and_suggested_components(self):
+        text = self._reply("...", {
+            "work_type": None, "objective": None, "components": None,
+            "scope_boundary": None, "completion_conditions": None, "rollout_needs": None,
+        })
+        client = FakeClaudeCodeClient(messages=_stream_json(text=text, session_id="ses-1"))
+        with TemporaryDirectory() as temp:
+            suggest_form_turn(client, Path(temp), "Yes, add export.", "Add CSV export.", ["content", "export"])
+        prompt = client.prompts[0]
+        self.assertIn("Add CSV export.", prompt)
+        self.assertIn("content, export", prompt)
+        self.assertIn("Yes, add export.", prompt)
 
 
 if __name__ == "__main__":
