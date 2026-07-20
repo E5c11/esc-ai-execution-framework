@@ -4,14 +4,20 @@ from pathlib import Path
 from typing import Any
 
 from esc_exec.framework_descriptor import check_framework_compatibility
+from esc_exec.adapters import detect_build_system
 from esc_exec.gradle import component_structure, detect_gradle_repository
 from esc_exec.model import ManifestState, ValidationResult
+from esc_exec.npm import detect_npm_repository, npm_component_structure
 from esc_exec.registry import RENAMED_FRAMEWORK_IDS
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
 REPOSITORY_MANIFEST = "esc-execution.yaml"
 COMPONENT_MANIFEST = "esc-component.yaml"
+
+# build.system values a generated component manifest is allowed to declare --
+# one entry per registered BuildSystemAdapter (esc_exec/adapters.py).
+SUPPORTED_BUILD_SYSTEMS = {"gradle", "npm"}
 
 # Every escape-ai-owned generated/managed file lives under this repository-local
 # directory, keyed by stable component ID rather than mirroring a component's real
@@ -124,6 +130,53 @@ def generate_gradle_manifests(root: Path) -> list[Path]:
     return written
 
 
+def generate_npm_manifests(root: Path) -> list[Path]:
+    root = root.resolve()
+    repository_id, components = detect_npm_repository(root)
+    repository_path = repository_manifest_path(root)
+    existing_repository = load_yaml(repository_path) if repository_path.exists() else {}
+    generated_repository = {
+        "schema_version": 1,
+        "repository": {
+            "id": repository_id,
+            "type": "npm-package",
+        },
+        "components": [
+            {"id": component_id, "manifest": component_manifest_relative_path(component_id)}
+            for component_id, relative in components
+        ],
+        "generation": {
+            "generator": "esc-exec",
+            "sources": ["package.json"],
+        },
+    }
+    write_yaml(repository_path, _merge_generated(existing_repository, generated_repository))
+    written = [repository_path]
+
+    for component_id, relative in components:
+        manifest_path = component_manifest_path(root, component_id)
+        existing = load_yaml(manifest_path) if manifest_path.exists() else {}
+        generated = {
+            "schema_version": 1,
+            "component": {
+                "id": component_id,
+                "type": "npm-package",
+                "path": str(relative),
+            },
+            "build": {
+                "system": "npm",
+            },
+            "paths": npm_component_structure(root, relative),
+            "generation": {
+                "generator": "esc-exec",
+                "sources": ["package.json"],
+            },
+        }
+        write_yaml(manifest_path, _merge_generated(existing, generated))
+        written.append(manifest_path)
+    return written
+
+
 def validate_repository(root: Path, registry_path: Path | None = None) -> list[ValidationResult]:
     root = root.resolve()
     repository_path = repository_manifest_path(root)
@@ -188,7 +241,7 @@ def validate_repository(root: Path, registry_path: Path | None = None) -> list[V
         results.append(validate_component(root, manifest_path, expected_id=item.get("id")))
 
     try:
-        _, detected = detect_gradle_repository(root)
+        _, detected, _ = detect_build_system(root)
         detected_paths = {component_manifest_relative_path(component_id) for component_id, _ in detected}
         missing = sorted(detected_paths - declared_paths)
         if missing:
@@ -247,8 +300,8 @@ def validate_component(root: Path, path: Path, expected_id: Any = None) -> Valid
                 [f"component.path points to missing directory: {component.get('path')}"],
             )
     build = data.get("build")
-    if not isinstance(build, dict) or build.get("system") != "gradle":
-        invalid.append("build.system must be `gradle` for a generated Gradle component")
+    if not isinstance(build, dict) or build.get("system") not in SUPPORTED_BUILD_SYSTEMS:
+        invalid.append(f"build.system must be one of {sorted(SUPPORTED_BUILD_SYSTEMS)}")
     invalid.extend(_architecture_selector_errors(data))
     if invalid:
         return ValidationResult(ManifestState.INVALID, str(path), invalid + incomplete)

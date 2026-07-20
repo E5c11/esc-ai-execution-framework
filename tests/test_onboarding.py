@@ -297,6 +297,43 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn(".esc-ai/INSTRUCTIONS.md", second["workflow_inheritance"]["existing"])
 
 
+class NpmOnboardingTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / "package.json").write_text(json.dumps({"name": "garage-triage"}), encoding="utf-8")
+        (self.root / "src").mkdir()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_fresh_npm_repository_is_all_create_with_questions(self):
+        proposal = analyze_repository(self.root)
+        self.assertEqual("garage-triage", proposal["repository"]["id"])
+        self.assertEqual("npm-package", proposal["repository"]["type"])
+        actions = {entry["path"]: entry["action"] for entry in proposal["files"]}
+        self.assertEqual("create", actions[".esc-ai/esc-execution.yaml"])
+        self.assertEqual(
+            "create", actions[".esc-ai/components/garage-triage/esc-component.yaml"],
+        )
+        self.assertEqual(
+            {"garage-triage"}, {question["component_id"] for question in proposal["semantic_questions"]},
+        )
+
+    def test_apply_answers_dispatches_to_npm_generator_and_skips_verification_profile(self):
+        proposal = analyze_repository(self.root)
+        answers = {"garage-triage": {"purpose": "Turns free-text complaints into structured tickets."}}
+        result = apply_onboarding_answers(self.root, proposal, answers)
+        self.assertIn(".esc-ai/esc-execution.yaml", result["written"])
+        manifest_path = component_manifest_path(self.root, "garage-triage")
+        manifest = load_yaml(manifest_path)
+        self.assertEqual("npm", manifest["build"]["system"])
+        self.assertEqual(
+            "Turns free-text complaints into structured tickets.", manifest["component"]["purpose"],
+        )
+        self.assertFalse((manifest_path.parent / "esc-verification-profile.yaml").exists())
+
+
 class SingleModuleGradleOnboardingTests(unittest.TestCase):
     """
     Regression coverage for a repository with no include(...) subprojects at all

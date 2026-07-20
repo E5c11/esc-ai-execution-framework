@@ -4,8 +4,8 @@ import json
 import unittest
 
 from esc_exec.manifests import (
-    component_manifest_path, generate_gradle_manifests, repository_manifest_path,
-    validate_repository,
+    component_manifest_path, generate_gradle_manifests, generate_npm_manifests,
+    repository_manifest_path, validate_component, validate_repository,
 )
 from esc_exec.model import ManifestState
 from esc_exec.registry import RENAMED_FRAMEWORK_IDS, add_route
@@ -146,6 +146,55 @@ class ManifestTests(unittest.TestCase):
             self.assertIn("$schema", load_yaml(schema))
         for schema in schemas.glob("*.schema.json"):
             self.assertIn("$schema", json.loads(schema.read_text(encoding="utf-8")))
+
+
+class NpmManifestTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / "package.json").write_text(json.dumps({"name": "garage-triage"}), encoding="utf-8")
+        (self.root / "src").mkdir()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_generation_writes_repository_and_component_manifests(self):
+        generated = generate_npm_manifests(self.root)
+        self.assertEqual(2, len(generated))
+        repository = load_yaml(repository_manifest_path(self.root))
+        self.assertEqual("garage-triage", repository["repository"]["id"])
+        self.assertEqual("npm-package", repository["repository"]["type"])
+        self.assertEqual(
+            [".esc-ai/components/garage-triage/esc-component.yaml"],
+            [item["manifest"] for item in repository["components"]],
+        )
+        component = load_yaml(component_manifest_path(self.root, "garage-triage"))
+        self.assertEqual("npm", component["build"]["system"])
+        self.assertEqual("src", component["paths"]["source"])
+
+    def test_generated_component_is_valid_once_purpose_is_authored(self):
+        generate_npm_manifests(self.root)
+        manifest_path = component_manifest_path(self.root, "garage-triage")
+        manifest = load_yaml(manifest_path)
+        manifest["component"]["purpose"] = "Owns the garage fault-triage app."
+        write_yaml(manifest_path, manifest)
+        result = validate_component(self.root, manifest_path, expected_id="garage-triage")
+        self.assertEqual(ManifestState.VALID, result.state)
+
+
+class ValidateComponentBuildSystemTests(unittest.TestCase):
+    def test_unknown_build_system_is_invalid(self):
+        with TemporaryDirectory() as name:
+            root = Path(name)
+            manifest_path = root / "component.yaml"
+            write_yaml(manifest_path, {
+                "schema_version": 1,
+                "component": {"id": "x", "type": "x", "path": ".", "purpose": "x"},
+                "build": {"system": "maven"},
+            })
+            result = validate_component(root, manifest_path, expected_id="x")
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("build.system" in message for message in result.messages))
 
 
 if __name__ == "__main__":

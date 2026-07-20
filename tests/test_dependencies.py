@@ -8,6 +8,7 @@ from esc_exec.dependencies import (
     generate_dependency_graph, validate_dependency_graph,
 )
 from esc_exec.indexing import generate_indexes
+from esc_exec.json_io import load_json
 from esc_exec.manifests import (
     component_manifest_path, component_manifest_relative_path, repository_manifest_path,
 )
@@ -97,6 +98,34 @@ class DependencyTests(unittest.TestCase):
         impact_gate = next(gate for gate in plan["gates"] if gate["id"] == "impact")
         self.assertEqual(["b", "c", "d"], plan["impact"]["consumer_components"])
         self.assertEqual(["b-tests", "c-tests", "d-tests"], [check["id"] for check in impact_gate["checks"]])
+
+
+class NonGradleDependencyGraphTests(unittest.TestCase):
+    def test_npm_component_is_an_edgeless_node_not_a_crash(self):
+        # Regression: build_dependency_graph used to hard-require
+        # manifest["build"]["project"], a Gradle-only concept -- an npm component
+        # (no "project" key at all) crashed apply_onboarding_answers's dependency
+        # graph step with a bare KeyError.
+        with TemporaryDirectory() as name:
+            root = Path(name)
+            write_yaml(repository_manifest_path(root), {
+                "schema_version": 1,
+                "repository": {"id": "repo", "type": "npm-package", "purpose": "test"},
+                "components": [{"id": "app", "manifest": component_manifest_relative_path("app")}],
+            })
+            (root / "app").mkdir()
+            write_yaml(component_manifest_path(root, "app"), {
+                "schema_version": 1,
+                "component": {"id": "app", "type": "npm-package", "path": "app", "purpose": "app"},
+                "build": {"system": "npm"},
+                "paths": {"build": "package.json"},
+            })
+            (root / "app/package.json").write_text("{}", encoding="utf-8")
+            graph_path = generate_dependency_graph(root)
+            self.assertEqual(ManifestState.VALID, validate_dependency_graph(root).state)
+            graph = load_json(graph_path)
+            self.assertEqual([{"id": "app", "project": None, "manifest": component_manifest_relative_path("app")}], graph["nodes"])
+            self.assertEqual([], graph["edges"])
 
 
 class TypesafeProjectAccessorTests(unittest.TestCase):

@@ -130,15 +130,21 @@ def build_dependency_graph(repository: Path) -> dict[str, Any]:
         manifest_path = repository / declared["manifest"]
         manifest = load_yaml(manifest_path)
         component_id = manifest["component"]["id"]
-        project = manifest["build"]["project"]
+        manifests[component_id] = (manifest_path, manifest)
+        inputs.append(manifest_path.read_bytes())
+        project = manifest.get("build", {}).get("project")
+        if project is None:
+            # Non-Gradle components (e.g. npm) have no Gradle project path and no
+            # build.gradle.kts to parse for project-dependency edges -- include as
+            # an edge-less node instead of fabricating a project identifier.
+            nodes.append({"id": component_id, "project": None, "manifest": declared["manifest"]})
+            continue
         # build.gradle.kts is part of the component's real source tree, not the
         # manifest bundle -- resolve relative to component["path"], never
         # manifest_path.parent (which is now .esc-ai/components/<id>/).
         component_root = repository / manifest["component"]["path"]
         build_path = component_root / manifest.get("paths", {}).get("build", "build.gradle.kts")
-        manifests[component_id] = (manifest_path, manifest)
         project_to_component[project] = component_id
-        inputs.append(manifest_path.read_bytes())
         if build_path.is_file():
             inputs.append(build_path.read_bytes())
         nodes.append({"id": component_id, "project": project, "manifest": declared["manifest"]})
@@ -148,6 +154,11 @@ def build_dependency_graph(repository: Path) -> dict[str, Any]:
     }
     edges = []
     for consumer, (manifest_path, manifest) in manifests.items():
+        if manifest.get("build", {}).get("project") is None:
+            # No Gradle project path -- e.g. an npm component's build file is
+            # package.json, not something to scan for Gradle project-dependency
+            # syntax.
+            continue
         component_root = repository / manifest["component"]["path"]
         build_path = component_root / manifest.get("paths", {}).get("build", "build.gradle.kts")
         if not build_path.is_file():

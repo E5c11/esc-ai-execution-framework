@@ -14,7 +14,7 @@ from esc_exec.dependencies import detect_gradle_frameworks_and_targets, generate
 from esc_exec.indexing import generate_indexes
 from esc_exec.manifests import (
     component_manifest_path, component_manifest_relative_path, generate_gradle_manifests,
-    repository_manifest_path, repository_manifest_relative_path,
+    generate_npm_manifests, repository_manifest_path, repository_manifest_relative_path,
 )
 from esc_exec.registry import resolve_route
 from esc_exec.task_context import generate_gradle_verification_profile
@@ -23,6 +23,14 @@ from esc_exec.yaml_io import load_yaml, write_yaml
 
 
 ARCHITECTURE_FRAMEWORK_ID = "esc-ai-architecture-framework"
+
+# One manifest generator per registered BuildSystemAdapter (esc_exec/adapters.py) --
+# apply_onboarding_answers dispatches through this instead of hardcoding Gradle so
+# onboarding's write side is actually generic, not just its detection side.
+MANIFEST_GENERATORS = {
+    "gradle": generate_gradle_manifests,
+    "npm": generate_npm_manifests,
+}
 
 
 def import_project_profile(root: Path) -> dict[str, Any] | None:
@@ -282,7 +290,11 @@ def apply_onboarding_answers(
             f"now detects `{repository_id}` -- re-analyze before applying answers"
         )
 
-    generated = generate_gradle_manifests(root)
+    try:
+        manifest_generator = MANIFEST_GENERATORS[adapter.name]
+    except KeyError:
+        raise ValueError(f"No manifest generator registered for build-system adapter `{adapter.name}`") from None
+    generated = manifest_generator(root)
 
     profile_doc_map = _load_profile_doc_map(registry_path)
     imported = import_project_profile(root)

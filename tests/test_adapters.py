@@ -2,7 +2,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from esc_exec.adapters import GradleAdapter, detect_build_system
+import json
+
+from esc_exec.adapters import GradleAdapter, NpmAdapter, detect_build_system
 
 
 class AdaptersTests(unittest.TestCase):
@@ -18,6 +20,16 @@ class AdaptersTests(unittest.TestCase):
             self.assertEqual([("content", Path("content"))], components)
             self.assertIsInstance(adapter, GradleAdapter)
             self.assertEqual("gradle", adapter.name)
+
+    def test_detects_npm_repository(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "package.json").write_text(json.dumps({"name": "garage-triage"}), encoding="utf-8")
+            repository_id, components, adapter = detect_build_system(root)
+            self.assertEqual("garage-triage", repository_id)
+            self.assertEqual([("garage-triage", Path("."))], components)
+            self.assertIsInstance(adapter, NpmAdapter)
+            self.assertEqual("npm", adapter.name)
 
     def test_raises_when_no_adapter_detects_a_build(self):
         with TemporaryDirectory() as temp:

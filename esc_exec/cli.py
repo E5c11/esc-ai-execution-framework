@@ -3,11 +3,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from esc_exec.adapters import detect_build_system
 from esc_exec.contracts import CONTRACT_FORMATS, validate_contract, validate_contract_set
 from esc_exec.indexing import generate_indexes, match_components, validate_indexes
 from esc_exec.json_io import load_json, write_json
-from esc_exec.manifests import generate_gradle_manifests, overall_exit_code, validate_repository
-from esc_exec.onboarding import analyze_repository, apply_onboarding_answers
+from esc_exec.manifests import overall_exit_code, validate_repository
+from esc_exec.onboarding import MANIFEST_GENERATORS, analyze_repository, apply_onboarding_answers
 from esc_exec.opencode_adapter import OpenCodeAdapter, OpenCodeClient, OpenCodeError
 from esc_exec.registry import (
     add_ecosystem, add_route, default_registry_path, migrate_legacy_registry,
@@ -292,7 +293,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "manifest" and args.manifest_command == "generate":
         try:
-            paths = generate_gradle_manifests(args.repository)
+            _, _, adapter = detect_build_system(args.repository)
+            paths = MANIFEST_GENERATORS[adapter.name](args.repository)
         except (OSError, ValueError) as exc:
             print(f"INVALID    {exc}")
             return 1

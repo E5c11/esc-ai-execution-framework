@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from esc_exec.gradle import detect_gradle_repository
+from esc_exec.npm import detect_npm_repository
 
 
 class BuildSystemAdapter(Protocol):
@@ -27,7 +28,19 @@ class GradleAdapter:
         return detect_gradle_repository(root)
 
 
-ADAPTERS: list[BuildSystemAdapter] = [GradleAdapter()]
+class NpmAdapter:
+    name = "npm"
+    repository_type = "npm-package"
+    component_type = "npm-package"
+
+    def detects(self, root: Path) -> bool:
+        return (root / "package.json").exists()
+
+    def detect(self, root: Path) -> tuple[str, list[tuple[str, Path]]]:
+        return detect_npm_repository(root)
+
+
+ADAPTERS: list[BuildSystemAdapter] = [GradleAdapter(), NpmAdapter()]
 
 
 def detect_build_system(root: Path) -> tuple[str, list[tuple[str, Path]], BuildSystemAdapter]:
