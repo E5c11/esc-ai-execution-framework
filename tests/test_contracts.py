@@ -30,6 +30,7 @@ class ContractTests(unittest.TestCase):
             "onboarding-proposal": examples / "onboarding-proposal.json",
             "initiative": examples / "initiative.yaml",
             "process-metrics": examples / "process-metrics.json",
+            "verification-result": examples / "verification-result.json",
         }
         self.assertEqual(set(CONTRACT_FORMATS), set(paths))
         for kind, path in paths.items():
@@ -74,6 +75,45 @@ class ContractTests(unittest.TestCase):
             result = validate_contract("event", path)
             self.assertEqual(ManifestState.INVALID, result.state)
             self.assertTrue(any("monotonically" in message for message in result.messages))
+
+    def test_verification_result_status_must_match_check_outcomes(self):
+        import json
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "verification-result.json"
+            example = Path(__file__).parents[1] / "examples/contracts/verification-result.json"
+            document = json.loads(example.read_text(encoding="utf-8"))
+            document["gates"][1]["checks"][0]["status"] = "failed"
+            document["gates"][1]["checks"][0]["exit_code"] = 1
+            path.write_text(json.dumps(document), encoding="utf-8")
+            result = validate_contract("verification-result", path)
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("status must be failed" in message for message in result.messages))
+
+    def test_verification_result_passed_check_requires_real_exit_code(self):
+        import json
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "verification-result.json"
+            example = Path(__file__).parents[1] / "examples/contracts/verification-result.json"
+            document = json.loads(example.read_text(encoding="utf-8"))
+            document["gates"][1]["checks"][0]["exit_code"] = None
+            path.write_text(json.dumps(document), encoding="utf-8")
+            result = validate_contract("verification-result", path)
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("requires a real exit_code" in message for message in result.messages))
+
+    def test_verification_result_skipped_gate_rejects_executed_check(self):
+        import json
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / "verification-result.json"
+            example = Path(__file__).parents[1] / "examples/contracts/verification-result.json"
+            document = json.loads(example.read_text(encoding="utf-8"))
+            document["gates"][0]["checks"][0]["status"] = "passed"
+            document["gates"][0]["checks"][0]["exit_code"] = 0
+            document["gates"][0]["checks"][0]["duration_ms"] = 100
+            path.write_text(json.dumps(document), encoding="utf-8")
+            result = validate_contract("verification-result", path)
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("requires all checks to be skipped or not-run" in message for message in result.messages))
 
     def test_missing_contract_is_incomplete(self):
         result = validate_contract("task", Path("does-not-exist.yaml"))

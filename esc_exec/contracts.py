@@ -30,6 +30,7 @@ CONTRACT_FORMATS = {
     "onboarding-proposal": "json",
     "initiative": "yaml",
     "process-metrics": "json",
+    "verification-result": "json",
 }
 
 REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
@@ -98,6 +99,9 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
         "process": ("kind", "id"),
         "questions": ("asked", "answered"),
     },
+    "verification-result": {
+        "root": ("schema_version", "task_id", "generated_at", "status", "gates"),
+    },
 }
 
 ENUMS: dict[str, dict[str, set[str]]] = {
@@ -136,6 +140,7 @@ ENUMS: dict[str, dict[str, set[str]]] = {
     "process-metrics": {
         "process.kind": {"onboarding", "planning"},
     },
+    "verification-result": {"status": {"passed", "failed"}},
 }
 
 
@@ -334,6 +339,41 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
                     for check in checks:
                         if not isinstance(check, dict) or not check.get("id") or not isinstance(check.get("command"), list) or not check["command"]:
                             messages.append(prefix + f"gate {gate['id']} contains an invalid check")
+        if kind == "verification-result":
+            expected_order = ["focused", "component", "impact", "final"]
+            gates = document.get("gates")
+            if not isinstance(gates, list) or [gate.get("id") for gate in gates if isinstance(gate, dict)] != expected_order:
+                messages.append(prefix + "gates must contain the four ordered verification stages")
+                gates = []
+            worst_status = "passed"
+            for gate in gates:
+                outcome = gate.get("outcome")
+                checks = gate.get("checks")
+                if outcome not in {"completed", "skipped", "not-run"} or not isinstance(checks, list):
+                    messages.append(prefix + f"gate {gate.get('id')} has invalid outcome or checks")
+                    continue
+                if outcome != "completed" and any(check.get("status") not in {"skipped", "not-run"} for check in checks if isinstance(check, dict)):
+                    messages.append(prefix + f"gate {gate.get('id')} outcome {outcome} requires all checks to be skipped or not-run")
+                for check in checks:
+                    if not isinstance(check, dict) or not check.get("id") or not isinstance(check.get("command"), list) or not check["command"]:
+                        messages.append(prefix + f"gate {gate.get('id')} contains an invalid check")
+                        continue
+                    status = check.get("status")
+                    if status not in {"passed", "failed", "error", "skipped", "not-run"}:
+                        messages.append(prefix + f"check {check['id']} has an invalid status")
+                        continue
+                    if status in {"skipped", "not-run"} and (check.get("exit_code") is not None or check.get("duration_ms") is not None):
+                        messages.append(prefix + f"check {check['id']} status {status} must have a null exit_code and duration_ms")
+                    if status in {"passed", "failed"} and (not isinstance(check.get("exit_code"), int) or not isinstance(check.get("duration_ms"), int)):
+                        messages.append(prefix + f"check {check['id']} status {status} requires a real exit_code and duration_ms")
+                    if status in {"failed", "error"}:
+                        worst_status = "failed"
+                    for field in ("stdout_path", "stderr_path", "report_path"):
+                        value = check.get(field)
+                        if isinstance(value, str) and Path(value).is_absolute():
+                            messages.append(prefix + f"check {check['id']}.{field} must be workspace-relative")
+            if document.get("status") != worst_status:
+                messages.append(prefix + f"status must be {worst_status} given these check results")
         if kind == "architecture-report":
             totals = document.get("totals", {})
             fields = ("rules", "passed", "failed", "violations", "violations_included", "violations_omitted")

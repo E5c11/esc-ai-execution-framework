@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "task_id": "task-index-review",
+  "generated_at": "2026-07-21T09:00:00Z",
+  "status": "passed",
+  "gates": [
+    {
+      "id": "focused",
+      "outcome": "skipped",
+      "checks": [
+        {
+          "id": "content-focused-tests",
+          "command": ["./gradlew", ":content:test", "--tests", "{test_filter}"],
+          "status": "skipped",
+          "exit_code": null,
+          "duration_ms": null,
+          "stdout_path": null,
+          "stderr_path": null,
+          "report_path": null
+        }
+      ]
+    },
+    {
+      "id": "component",
+      "outcome": "completed",
+      "checks": [
+        {
+          "id": "content-tests",
+          "command": ["./gradlew", ":content:test"],
+          "status": "passed",
+          "exit_code": 0,
+          "duration_ms": 4210,
+          "stdout_path": ".esc-ai/runs/run-index-review-001/logs/component-content-tests.stdout.log",
+          "stderr_path": ".esc-ai/runs/run-index-review-001/logs/component-content-tests.stderr.log",
+          "report_path": null
+        }
+      ]
+    },
+    {
+      "id": "impact",
+      "outcome": "completed",
+      "checks": [
+        {
+          "id": "recommendations-tests",
+          "command": ["./gradlew", ":recommendations:test"],
+          "status": "passed",
+          "exit_code": 0,
+          "duration_ms": 3190,
+          "stdout_path": ".esc-ai/runs/run-index-review-001/logs/impact-recommendations-tests.stdout.log",
+          "stderr_path": ".esc-ai/runs/run-index-review-001/logs/impact-recommendations-tests.stderr.log",
+          "report_path": null
+        }
+      ]
+    },
+    {
+      "id": "final",
+      "outcome": "completed",
+      "checks": [
+        {
+          "id": "repository-tests",
+          "command": ["./gradlew", "test"],
+          "status": "passed",
+          "exit_code": 0,
+          "duration_ms": 15820,
+          "stdout_path": ".esc-ai/runs/run-index-review-001/logs/final-repository-tests.stdout.log",
+          "stderr_path": ".esc-ai/runs/run-index-review-001/logs/final-repository-tests.stderr.log",
+          "report_path": null
+        }
+      ]
+    }
+  ]
+}

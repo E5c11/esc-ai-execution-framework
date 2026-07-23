@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esc.ai/schemas/execution/verification-result-v1.schema.json",
+  "title": "ESC AI Verification Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "generated_at", "status", "gates"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "task_id": {"type": "string"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["passed", "failed"]},
+    "gates": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "outcome", "checks"],
+        "properties": {
+          "id": {"enum": ["focused", "component", "impact", "final"]},
+          "outcome": {"enum": ["completed", "skipped", "not-run"]},
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id", "command", "status", "exit_code", "duration_ms",
+                "stdout_path", "stderr_path", "report_path"
+              ],
+              "properties": {
+                "id": {"type": "string"},
+                "command": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                "status": {"enum": ["passed", "failed", "error", "skipped", "not-run"]},
+                "exit_code": {"type": ["integer", "null"]},
+                "duration_ms": {"type": ["integer", "null"], "minimum": 0},
+                "stdout_path": {"type": ["string", "null"]},
+                "stderr_path": {"type": ["string", "null"]},
+                "report_path": {"type": ["string", "null"]}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

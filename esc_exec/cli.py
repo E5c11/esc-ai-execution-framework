@@ -16,6 +16,7 @@ from esc_exec.registry import (
 )
 from esc_exec.reporting import summarize_junit
 from esc_exec.task_context import build_task_context, build_verification_plan, generate_gradle_verification_profile
+from esc_exec.verification_execution import DEFAULT_TIMEOUT_SECONDS, execute_verification_plan
 from esc_exec.architecture import check_architecture, generate_architecture_profile
 from esc_exec.checkpoints import create_checkpoint, inspect_checkpoint, update_checkpoint
 from esc_exec.dependencies import analyze_impact, generate_dependency_graph, validate_dependency_graph
@@ -124,6 +125,11 @@ def build_parser() -> argparse.ArgumentParser:
     verification_plan.add_argument("repository")
     verification_plan.add_argument("task", type=Path)
     verification_plan.add_argument("output", type=Path)
+    verification_execute = verification_commands.add_parser("execute")
+    verification_execute.add_argument("repository")
+    verification_execute.add_argument("plan", type=Path)
+    verification_execute.add_argument("run_dir", type=Path)
+    verification_execute.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
 
     architecture = subcommands.add_parser("architecture", help="Run component architecture fitness functions")
     architecture_commands = architecture.add_subparsers(dest="architecture_command", required=True)
@@ -345,12 +351,20 @@ def main(argv: list[str] | None = None) -> int:
                     f"GENERATED  {args.output} "
                     f"components={len(document['routing']['components'])}"
                 )
-            elif args.verification_command == "profile":
+                return 0
+            if args.verification_command == "profile":
                 print(f"GENERATED  {generate_gradle_verification_profile(repository, args.component)}")
-            else:
-                document = build_verification_plan(repository, args.task, args.output)
-                statuses = ", ".join(f"{gate['id']}={gate['status']}" for gate in document["gates"])
-                print(f"GENERATED  {args.output} {statuses}")
+                return 0
+            if args.verification_command == "execute":
+                plan_document = load_json(args.plan)
+                document = execute_verification_plan(
+                    plan_document, repository, args.run_dir, timeout_seconds=args.timeout_seconds,
+                )
+                print(f"{document['status'].upper():<10} run={args.run_dir}")
+                return 1 if document["status"] == "failed" else 0
+            document = build_verification_plan(repository, args.task, args.output)
+            statuses = ", ".join(f"{gate['id']}={gate['status']}" for gate in document["gates"])
+            print(f"GENERATED  {args.output} {statuses}")
             return 0
         except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
             print(f"INCOMPLETE {exc}")
