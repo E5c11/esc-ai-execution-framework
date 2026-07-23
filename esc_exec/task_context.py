@@ -126,19 +126,49 @@ def generate_gradle_verification_profile(repository: Path, component_id: str) ->
         raise ValueError(f"verification profile already exists: {profile_path}")
     project = manifest["build"]["project"]
     test_task = f"{project}:test" if project != ":" else "test"
+    component_path = manifest["component"]["path"]
+
+    report_profile_path = manifest_path.parent / "esc-report-profile.yaml"
+    if not report_profile_path.exists():
+        write_yaml(report_profile_path, {
+            "schema_version": 1,
+            "profile": {"id": f"{component_id}-report", "format": "junit-xml"},
+            "limits": {"max_failures": 10, "max_message_chars": 500},
+        })
+    report_profile_relative = str(report_profile_path.relative_to(repository))
+
+    def _report(glob: str) -> dict[str, str]:
+        return {"glob": glob, "profile": report_profile_relative}
+
+    component_glob = f"{component_path}/build/test-results/test/*.xml"
+    repository_glob = "**/build/test-results/test/*.xml"
     profile = {
         "schema_version": 1,
         "profile": {"id": f"{component_id}-verification", "component": component_id},
         "gates": {
-            "focused": [{"id": f"{component_id}-focused-tests", "command": ["./gradlew", test_task, "--tests", "{test_filter}"], "requires": ["test_filter"]}],
-            "component": [{"id": f"{component_id}-tests", "command": ["./gradlew", test_task]}],
+            "focused": [{
+                "id": f"{component_id}-focused-tests",
+                "command": ["./gradlew", test_task, "--tests", "{test_filter}"],
+                "requires": ["test_filter"],
+                "report": _report(component_glob),
+            }],
+            "component": [{
+                "id": f"{component_id}-tests",
+                "command": ["./gradlew", test_task],
+                "report": _report(component_glob),
+            }],
             "impact": [],
-            "final": [{"id": "repository-tests", "command": ["./gradlew", "test"]}],
+            "final": [{
+                "id": "repository-tests",
+                "command": ["./gradlew", "test"],
+                "report": _report(repository_glob),
+            }],
         },
     }
     write_yaml(profile_path, profile)
     paths = manifest.setdefault("paths", {})
     paths["verification_profile"] = profile_path.name
+    paths["report_profile"] = report_profile_path.name
     write_yaml(manifest_path, manifest)
     return profile_path
 

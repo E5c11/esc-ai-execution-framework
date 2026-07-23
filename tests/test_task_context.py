@@ -16,7 +16,7 @@ from esc_exec.task_context import (
     build_verification_plan,
     generate_gradle_verification_profile,
 )
-from esc_exec.yaml_io import write_yaml
+from esc_exec.yaml_io import load_yaml, write_yaml
 
 
 class TaskContextTests(unittest.TestCase):
@@ -143,3 +143,36 @@ class TaskContextTests(unittest.TestCase):
             [gate["status"] for gate in plan["gates"]],
         )
         self.assertEqual(ManifestState.VALID, validate_contract("verification-plan", plan_path).state)
+
+    def test_generated_verification_profile_declares_junit_report_locations(self):
+        profile_path = generate_gradle_verification_profile(self.root, "content")
+        profile = load_yaml(profile_path)
+        report_profile_path = profile_path.parent / "esc-report-profile.yaml"
+        self.assertTrue(report_profile_path.is_file())
+        report_profile = load_yaml(report_profile_path)
+        self.assertEqual(
+            {"schema_version": 1, "profile": {"id": "content-report", "format": "junit-xml"},
+             "limits": {"max_failures": 10, "max_message_chars": 500}},
+            report_profile,
+        )
+        report_profile_relative = str(report_profile_path.relative_to(self.root))
+        focused_report = profile["gates"]["focused"][0]["report"]
+        component_report = profile["gates"]["component"][0]["report"]
+        final_report = profile["gates"]["final"][0]["report"]
+        self.assertEqual({"glob": "content/build/test-results/test/*.xml", "profile": report_profile_relative}, focused_report)
+        self.assertEqual({"glob": "content/build/test-results/test/*.xml", "profile": report_profile_relative}, component_report)
+        self.assertEqual({"glob": "**/build/test-results/test/*.xml", "profile": report_profile_relative}, final_report)
+        manifest = load_yaml(component_manifest_path(self.root, "content"))
+        self.assertEqual("esc-report-profile.yaml", manifest["paths"]["report_profile"])
+
+    def test_existing_report_profile_is_not_overwritten(self):
+        manifest_path = component_manifest_path(self.root, "content")
+        report_profile_path = manifest_path.parent / "esc-report-profile.yaml"
+        write_yaml(report_profile_path, {
+            "schema_version": 1,
+            "profile": {"id": "hand-authored", "format": "junit-xml"},
+            "limits": {"max_failures": 3, "max_message_chars": 50},
+        })
+        generate_gradle_verification_profile(self.root, "content")
+        report_profile = load_yaml(report_profile_path)
+        self.assertEqual("hand-authored", report_profile["profile"]["id"])

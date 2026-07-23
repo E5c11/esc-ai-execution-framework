@@ -8,7 +8,7 @@ import unittest
 from esc_exec.contracts import validate_contract
 from esc_exec.cli import main
 from esc_exec.model import ManifestState
-from esc_exec.reporting import summarize_junit
+from esc_exec.reporting import summarize_junit, summarize_junit_reports
 
 
 class ReportingTests(unittest.TestCase):
@@ -55,6 +55,40 @@ class ReportingTests(unittest.TestCase):
                 "full_report": {"path": "junit.xml", "media_type": "application/xml"},
             }), encoding="utf-8")
             self.assertEqual(ManifestState.INVALID, validate_contract("verification-summary", path).state)
+
+    def test_summarize_junit_reports_aggregates_multiple_files(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = root / "TEST-A.xml"
+            first.write_text(
+                '<testsuite><testcase classname="A" name="ok" time="0.1"/>'
+                '<testcase classname="A" name="broken"><failure message="a broke"/></testcase></testsuite>',
+                encoding="utf-8",
+            )
+            second = root / "TEST-B.xml"
+            second.write_text(
+                '<testsuite><testcase classname="B" name="ok" time="0.2"/>'
+                '<testcase classname="B" name="also-broken"><error>b errored</error></testcase></testsuite>',
+                encoding="utf-8",
+            )
+            profile = root / "profile.yaml"
+            profile.write_text(
+                "schema_version: 1\nprofile:\n  id: multi\n  format: junit-xml\n"
+                "limits:\n  max_failures: 10\n  max_message_chars: 100\n",
+                encoding="utf-8",
+            )
+            output = root / "verification-summary.json"
+            result = summarize_junit_reports([first, second], profile, output, "reports/dir")
+
+            self.assertEqual("error", result["verification"]["status"])
+            self.assertEqual(
+                {"tests": 4, "passed": 2, "failed": 1, "errors": 1, "skipped": 0, "duration_ms": 300},
+                result["totals"],
+            )
+            self.assertEqual(2, len(result["failures"]))
+            self.assertEqual({"a broke", "b errored"}, {failure["message"] for failure in result["failures"]})
+            self.assertEqual("reports/dir", result["full_report"]["path"])
+            self.assertEqual(ManifestState.VALID, validate_contract("verification-summary", output).state)
 
     def test_report_cli_writes_summary(self):
         with TemporaryDirectory() as temp:

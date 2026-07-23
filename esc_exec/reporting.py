@@ -36,48 +36,63 @@ def summarize_junit(
     output: Path,
     full_report_path: str | None = None,
 ) -> dict[str, Any]:
+    return summarize_junit_reports([source], profile_path, output, full_report_path)
+
+
+def summarize_junit_reports(
+    sources: list[Path],
+    profile_path: Path,
+    output: Path,
+    full_report_path: str | None = None,
+) -> dict[str, Any]:
+    """Aggregate one or more JUnit XML files (e.g. Gradle's one-file-per-class output)
+    into a single validated verification-summary. A single source behaves exactly
+    like the original single-file `summarize_junit`."""
+    if not sources:
+        raise ValueError("summarize_junit_reports requires at least one source file")
     profile_id, max_failures, max_message_chars = _profile(profile_path)
-    report_path = full_report_path or source.name
+    report_path = full_report_path or sources[0].name
     if Path(report_path).is_absolute():
         raise ValueError("full report path must be workspace-relative")
-    try:
-        root = ET.parse(source).getroot()
-    except ET.ParseError as exc:
-        raise ValueError(f"invalid JUnit XML: {exc}") from exc
-    if root.tag not in {"testsuite", "testsuites"}:
-        raise ValueError("JUnit XML root must be testsuite or testsuites")
 
     tests = failed = errors = skipped = duration_ms = 0
     all_failures: list[dict[str, str]] = []
-    for case in root.iter("testcase"):
-        tests += 1
+    for source in sources:
         try:
-            duration_ms += round(float(case.get("time", "0")) * 1000)
-        except ValueError:
-            pass
-        skipped_node = case.find("skipped")
-        failure_node = case.find("failure")
-        error_node = case.find("error")
-        if skipped_node is not None:
-            skipped += 1
-            continue
-        problem = error_node if error_node is not None else failure_node
-        if problem is None:
-            continue
-        kind = "error" if error_node is not None else "failure"
-        errors += kind == "error"
-        failed += kind == "failure"
-        raw_message = problem.get("message") or problem.text or ""
-        message = " ".join(raw_message.split())[:max_message_chars]
-        item = {
-            "suite": case.get("classname", ""),
-            "test": case.get("name", "unknown"),
-            "kind": kind,
-            "message": message,
-        }
-        if not item["suite"]:
-            item.pop("suite")
-        all_failures.append(item)
+            root = ET.parse(source).getroot()
+        except ET.ParseError as exc:
+            raise ValueError(f"invalid JUnit XML: {exc}") from exc
+        if root.tag not in {"testsuite", "testsuites"}:
+            raise ValueError("JUnit XML root must be testsuite or testsuites")
+        for case in root.iter("testcase"):
+            tests += 1
+            try:
+                duration_ms += round(float(case.get("time", "0")) * 1000)
+            except ValueError:
+                pass
+            skipped_node = case.find("skipped")
+            failure_node = case.find("failure")
+            error_node = case.find("error")
+            if skipped_node is not None:
+                skipped += 1
+                continue
+            problem = error_node if error_node is not None else failure_node
+            if problem is None:
+                continue
+            kind = "error" if error_node is not None else "failure"
+            errors += kind == "error"
+            failed += kind == "failure"
+            raw_message = problem.get("message") or problem.text or ""
+            message = " ".join(raw_message.split())[:max_message_chars]
+            item = {
+                "suite": case.get("classname", ""),
+                "test": case.get("name", "unknown"),
+                "kind": kind,
+                "message": message,
+            }
+            if not item["suite"]:
+                item.pop("suite")
+            all_failures.append(item)
 
     status = "error" if errors else "failed" if failed else "passed"
     included = all_failures[:max_failures]
