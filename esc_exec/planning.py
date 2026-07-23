@@ -172,6 +172,53 @@ def generate_single_repository_workflow(
     return [task_path, readme_path]
 
 
+def _find_dependency_cycle(tasks: dict[str, dict[str, Any]]) -> str | None:
+    """
+    DFS over the depends_on graph declared across every task in this initiative
+    (nodes = every "repository/task_id", edges = each task's own depends_on list),
+    returning a human-readable cycle trace (e.g. "a/x -> b/y -> a/x") for the first
+    cycle found, or None if the graph is acyclic.
+
+    Structurally mirrors architecture_lookup.py::resolve_architecture_docs's
+    post-order DFS over a requires/depends_on adjacency, but that function only
+    tracks a single "done" set to stop infinite recursion -- it never actually
+    detects or reports a cycle (a requires-loop there silently resolves both
+    documents with no error). This adds the "currently on this path" (grey) set a
+    real cycle check needs. A dependency that isn't a declared node (already
+    reported separately as a membership error) is simply a dead end here, not a
+    crash: real cycles can only occur among declared nodes.
+    """
+    edges = {
+        f"{repository_id}/{task['task_id']}": list(task.get("depends_on", []) or [])
+        for repository_id, task in tasks.items()
+    }
+    done: set[str] = set()
+    path: list[str] = []
+    on_path: set[str] = set()
+
+    def visit(node: str) -> str | None:
+        if node in done:
+            return None
+        if node in on_path:
+            return " -> ".join(path[path.index(node):] + [node])
+        on_path.add(node)
+        path.append(node)
+        for dependency in edges.get(node, []):
+            cycle = visit(dependency)
+            if cycle:
+                return cycle
+        path.pop()
+        on_path.discard(node)
+        done.add(node)
+        return None
+
+    for node in edges:
+        cycle = visit(node)
+        if cycle:
+            return cycle
+    return None
+
+
 def generate_multi_repository_workflow(
     registry_path: Path,
     initiative_id: str,
@@ -184,11 +231,16 @@ def generate_multi_repository_workflow(
     "completion_conditions", "rollout_needs"?, "depends_on"?: ["repo/task_id", ...],
     "local_architecture_notes"?: [relative path, ...]}.
 
-    Validates every referenced repository ID resolves, every task_id is safe, and
-    every depends_on entry references another declared repository/task_id in this
-    same initiative -- all before writing a single file to any repository. A
-    multi-repository initiative must not partially land across some repos and fail
-    on others without the human knowing which succeeded.
+    Validates every referenced repository ID resolves, every task_id is safe, every
+    depends_on entry references another declared repository/task_id in this same
+    initiative, and that the depends_on graph across all declared tasks is acyclic
+    -- all before writing a single file to any repository. A multi-repository
+    initiative must not partially land across some repos and fail on others
+    without the human knowing which succeeded.
+
+    depends_on is not restricted to a straight chain -- an arbitrary graph
+    (branching, diamonds, independent subgraphs) is accepted as long as it's
+    acyclic; nothing here infers order from dict iteration.
     """
     if work_type not in WORK_TYPES:
         raise ValueError(f"work_type must be one of: {', '.join(WORK_TYPES)}")
@@ -213,6 +265,9 @@ def generate_multi_repository_workflow(
             errors.append(f"`{repository_id}`: {exc}")
         if not task.get("completion_conditions"):
             errors.append(f"`{repository_id}`: completion_conditions must be a non-empty list")
+    cycle = _find_dependency_cycle(tasks)
+    if cycle:
+        errors.append(f"depends_on graph has a cycle: {cycle}")
     if errors:
         raise ValueError("; ".join(errors))
 

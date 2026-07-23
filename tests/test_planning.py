@@ -154,6 +154,73 @@ class PlanningTests(unittest.TestCase):
         contract_task = load_yaml(self.root / ".esc-ai/workflows/active/task-contract/task.yaml")
         self.assertNotIn("depends_on", contract_task["task"]["initiative"])
 
+    def test_multi_repository_rejects_a_two_task_cycle(self):
+        second = self.root / "second-cycle"
+        self._make_repository(second, "repo-two", "api", "Owns the export API.", ["export"])
+        registry = self.root / "registry-cycle.yaml"
+        add_route(registry, "repositories", "repo", self.root)
+        add_route(registry, "repositories", "repo-two", second)
+
+        with self.assertRaisesRegex(ValueError, "cycle"):
+            generate_multi_repository_workflow(
+                registry, "feature-export", "Add CSV export.", "feature",
+                {
+                    "repo": {"task_id": "task-contract", "components": ["content"], "completion_conditions": ["done"],
+                             "depends_on": ["repo-two/task-api"]},
+                    "repo-two": {"task_id": "task-api", "components": ["api"], "completion_conditions": ["done"],
+                                 "depends_on": ["repo/task-contract"]},
+                },
+            )
+        self.assertFalse((self.root / ".esc-ai" / "workflows" / "active" / "task-contract").exists())
+        self.assertFalse((second / ".esc-ai" / "workflows" / "active" / "task-api").exists())
+
+    def test_multi_repository_rejects_a_self_referencing_task(self):
+        registry = self.root / "registry-self-cycle.yaml"
+        add_route(registry, "repositories", "repo", self.root)
+
+        with self.assertRaisesRegex(ValueError, "cycle"):
+            generate_multi_repository_workflow(
+                registry, "feature-export", "Add CSV export.", "feature",
+                {
+                    "repo": {"task_id": "task-contract", "components": ["content"], "completion_conditions": ["done"],
+                             "depends_on": ["repo/task-contract"]},
+                },
+            )
+
+    def test_multi_repository_accepts_a_branching_non_linear_graph(self):
+        """
+        Two independent tasks (backend, mobile) both depend on the same upstream
+        task (contracts) but not on each other -- a real diamond-shaped graph, not
+        the "chain to the previous entry" shape apply_plan happens to produce
+        today. generate_multi_repository_workflow must accept this: it threads
+        through whatever depends_on graph it's handed rather than inferring a
+        linear order from dict iteration.
+        """
+        backend = self.root / "backend"
+        self._make_repository(backend, "backend", "api", "Owns the backend API.", ["export"])
+        mobile = self.root / "mobile"
+        self._make_repository(mobile, "mobile", "app", "Owns the mobile client.", ["export"])
+        registry = self.root / "registry-diamond.yaml"
+        add_route(registry, "repositories", "repo", self.root)
+        add_route(registry, "repositories", "backend", backend)
+        add_route(registry, "repositories", "mobile", mobile)
+
+        written = generate_multi_repository_workflow(
+            registry, "feature-export", "Add CSV export.", "feature",
+            {
+                "repo": {"task_id": "task-contract", "components": ["content"], "completion_conditions": ["done"]},
+                "backend": {"task_id": "task-backend", "components": ["api"], "completion_conditions": ["done"],
+                            "depends_on": ["repo/task-contract"]},
+                "mobile": {"task_id": "task-mobile", "components": ["app"], "completion_conditions": ["done"],
+                           "depends_on": ["repo/task-contract"]},
+            },
+        )
+        self.assertEqual({"repo", "backend", "mobile"}, set(written))
+        backend_task = load_yaml(backend / ".esc-ai/workflows/active/task-backend/task.yaml")
+        self.assertEqual(["repo/task-contract"], backend_task["task"]["initiative"]["depends_on"])
+        mobile_task = load_yaml(mobile / ".esc-ai/workflows/active/task-mobile/task.yaml")
+        self.assertEqual(["repo/task-contract"], mobile_task["task"]["initiative"]["depends_on"])
+
     def test_multi_repository_threads_local_architecture_notes_per_task(self):
         registry = self.root / "registry-notes.yaml"
         add_route(registry, "repositories", "repo", self.root)
