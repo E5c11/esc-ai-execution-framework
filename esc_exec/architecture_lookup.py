@@ -99,6 +99,35 @@ def load_profile_doc_map(framework_root: Path) -> dict[str, Any]:
         raise ValueError(f"Invalid architecture framework profile-doc-map at {path}: {exc}") from exc
 
 
+NEXTJS_GENERIC_PROFILE_ID = "PLAT-WEB-NEXT"
+NEXTJS_WEB_APP_PROFILE_ID = "PLAT-WEB-NEXT-APP"
+
+
+def refine_profile_ids_for_style(suggested: list[str], architecture_style: str | None) -> list[str]:
+    """
+    Apply the one confirmed architecture_style-driven refinement (see
+    plan/active/npm-architecture-profile-detection.md design section 2) to an
+    already-resolved profile-id list -- factored out so both `suggest_profile_ids`
+    (fresh frameworks/targets) and `apply_onboarding_answers`'s analyze-time-
+    suggestion path (plan/active/apply-time-profile-id-suggestion-gap.md, which
+    carries a list forward without re-deriving it from frameworks/targets) apply
+    the same rule, instead of only the first one doing so and the second silently
+    never seeing a separately-answered architecture_style at all.
+
+    `architecture_style == "web-content"` is deliberately not handled -- no
+    confirmed doc ID for a `web-content`-specific Next.js extension exists yet
+    (open question 2 in the plan above); adding one would be a guess, not a
+    verified mapping.
+    """
+    if (
+        architecture_style == "web-app"
+        and NEXTJS_GENERIC_PROFILE_ID in suggested
+        and NEXTJS_WEB_APP_PROFILE_ID not in suggested
+    ):
+        return [*suggested, NEXTJS_WEB_APP_PROFILE_ID]
+    return suggested
+
+
 def suggest_profile_ids(
     frameworks: dict[str, str], targets: list[str], profile_doc_map: dict[str, Any],
     architecture_style: str | None = None,
@@ -113,13 +142,8 @@ def suggest_profile_ids(
     absent/None, behavior is identical to before this parameter existed. A bare
     "uses Next.js" signal resolves only the generic `PLAT-WEB-NEXT` doc -- it
     can't tell `web-app` (forms/Server-Actions-heavy) apart from `web-content`
-    (SSG/ISR-heavy) on its own. When the generic Next.js doc (`PLAT-WEB-NEXT`)
-    actually resolved from `frameworks` AND `architecture_style == "web-app"`,
-    the `web-app`-specific extension (`PLAT-WEB-NEXT-APP`) is additionally
-    suggested. `architecture_style == "web-content"` is deliberately not handled
-    here -- no confirmed doc ID for a `web-content`-specific Next.js extension
-    exists yet (open question 2 in the plan above); adding one would be a guess,
-    not a verified mapping.
+    (SSG/ISR-heavy) on its own. See `refine_profile_ids_for_style` for the actual
+    refinement rule.
     """
     suggested: list[str] = []
     target_map = profile_doc_map.get("targets", {})
@@ -132,6 +156,4 @@ def suggest_profile_ids(
         for doc_id in framework_map.get(field, {}).get(value, []):
             if doc_id not in suggested:
                 suggested.append(doc_id)
-    if architecture_style == "web-app" and "PLAT-WEB-NEXT" in suggested and "PLAT-WEB-NEXT-APP" not in suggested:
-        suggested.append("PLAT-WEB-NEXT-APP")
-    return suggested
+    return refine_profile_ids_for_style(suggested, architecture_style)

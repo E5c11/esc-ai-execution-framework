@@ -7,7 +7,7 @@ from typing import Any
 from esc_exec.adapters import BuildSystemAdapter, component_id_from_identifier, detect_build_system
 from esc_exec.architecture import generate_architecture_profile
 from esc_exec.architecture_lookup import (
-    load_architecture_index, load_profile_doc_map, resolve_architecture_docs,
+    load_architecture_index, load_profile_doc_map, refine_profile_ids_for_style, resolve_architecture_docs,
     stub_documents, suggest_profile_ids,
 )
 from esc_exec.dependencies import detect_gradle_frameworks_and_targets, generate_dependency_graph
@@ -464,13 +464,23 @@ def apply_onboarding_answers(
             frameworks = answer.get("frameworks", {})
             targets = answer.get("targets", [])
             architecture_style = answer.get("architecture_style")
-            attempted = bool(frameworks) or bool(targets) or imported is not None
+            # See plan/active/apply-time-profile-id-suggestion-gap.md. A component
+            # Tier 1 (or an imported project profile) already resolved at analyze
+            # time is never asked a frameworks/targets question -- that's the whole
+            # point of Tier 1 skipping the question -- so `answer` has nothing for
+            # it here. proposal["profile_id_suggestions"] is that already-resolved
+            # doc-ID list; used directly, not re-run through suggest_profile_ids,
+            # since it's already resolved IDs, not raw frameworks/targets to map.
+            analyzed_suggestion = proposal.get("profile_id_suggestions", {}).get(component_id)
+            attempted = bool(frameworks) or bool(targets) or imported is not None or bool(analyzed_suggestion)
             if (frameworks or targets) and profile_doc_map is not None:
                 suggested = suggest_profile_ids(
                     frameworks, targets, profile_doc_map, architecture_style=architecture_style,
                 )
+            elif analyzed_suggestion:
+                suggested = refine_profile_ids_for_style(list(analyzed_suggestion), architecture_style)
             else:
-                suggested = repository_suggestion
+                suggested = refine_profile_ids_for_style(list(repository_suggestion), architecture_style)
             if suggested:
                 manifest["architecture"] = {"profile_ids": suggested}
             elif attempted:

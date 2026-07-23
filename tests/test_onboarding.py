@@ -163,6 +163,61 @@ class OnboardingTests(unittest.TestCase):
         self.assertEqual({"feature"}, frameworks_questions)
         self.assertEqual({"core-api": ["PLAT-MOB-HTTP"]}, proposal["profile_id_suggestions"])
 
+    def test_apply_writes_tier1_suggestion_with_no_explicit_answer(self):
+        # See plan/active/apply-time-profile-id-suggestion-gap.md. core-api's
+        # profile_ids was already resolved at analyze time via Tier 1 detection
+        # (no question was ever asked for it, per the test above) -- apply must
+        # still write it even with a completely empty `answers` dict, not just
+        # when an answer happens to redundantly repeat it.
+        (self.root / "core/api/build.gradle.kts").write_text(
+            'dependencies {\n    implementation("io.ktor:ktor-client-core:2.3.0")\n}\n', encoding="utf-8",
+        )
+        registry = self._register_architecture_framework(
+            [{"id": "PLAT-MOB-HTTP", "type": "platform", "layer": "platforms",
+              "path": "platforms/mobile/http.md", "platform": ["mobile"], "architecture": ["all"],
+              "requires": [], "related": [], "tags": [], "status": ""}],
+            profile_doc_map={"frameworks": {"network": {"ktor": ["PLAT-MOB-HTTP"]}}, "targets": {}},
+        )
+        proposal = analyze_repository(self.root, registry)
+        answers = {
+            "core-api": {"purpose": "Owns the core API."},
+            "feature": {"purpose": "Owns the feature."},
+        }
+        result = apply_onboarding_answers(self.root, proposal, answers, registry)
+        manifest = load_yaml(component_manifest_path(self.root, "core-api"))
+        self.assertEqual(["PLAT-MOB-HTTP"], manifest["architecture"]["profile_ids"])
+        self.assertNotIn("core-api", result["empty_profile_id_suggestions"])
+
+    def test_apply_explicit_answer_overrides_tier1_suggestion(self):
+        (self.root / "core/api/build.gradle.kts").write_text(
+            'dependencies {\n    implementation("io.ktor:ktor-client-core:2.3.0")\n}\n', encoding="utf-8",
+        )
+        registry = self._register_architecture_framework(
+            [
+                {"id": "PLAT-MOB-HTTP", "type": "platform", "layer": "platforms",
+                 "path": "platforms/mobile/http.md", "platform": ["mobile"], "architecture": ["all"],
+                 "requires": [], "related": [], "tags": [], "status": ""},
+                {"id": "PLAT-MOB-ROOM", "type": "platform", "layer": "platforms",
+                 "path": "platforms/mobile/room.md", "platform": ["mobile"], "architecture": ["all"],
+                 "requires": [], "related": [], "tags": [], "status": ""},
+            ],
+            profile_doc_map={
+                "frameworks": {
+                    "network": {"ktor": ["PLAT-MOB-HTTP"]},
+                    "database": {"room": ["PLAT-MOB-ROOM"]},
+                },
+                "targets": {},
+            },
+        )
+        proposal = analyze_repository(self.root, registry)
+        answers = {
+            "core-api": {"purpose": "Owns the core API.", "frameworks": {"database": "room"}},
+            "feature": {"purpose": "Owns the feature."},
+        }
+        apply_onboarding_answers(self.root, proposal, answers, registry)
+        manifest = load_yaml(component_manifest_path(self.root, "core-api"))
+        self.assertEqual(["PLAT-MOB-ROOM"], manifest["architecture"]["profile_ids"])
+
     def test_existing_project_profile_suggests_and_skips_the_question(self):
         (self.root / "context").mkdir()
         write_yaml(self.root / "context/project-profile.yaml", {
@@ -380,6 +435,47 @@ class NpmOnboardingTests(unittest.TestCase):
         apply_onboarding_answers(self.root, proposal, answers, registry)
         manifest = load_yaml(component_manifest_path(self.root, "garage-triage"))
         self.assertEqual(["PLAT-WEB-NEXT"], manifest["architecture"]["profile_ids"])
+
+    def test_apply_writes_tier1_detected_next_with_no_explicit_answer(self):
+        # See plan/active/apply-time-profile-id-suggestion-gap.md. `next` was
+        # already Tier-1-detected at analyze time (no "frameworks" question was
+        # ever asked for it) -- apply must still write PLAT-WEB-NEXT from a
+        # completely empty `answers` dict.
+        (self.root / "package.json").write_text(
+            json.dumps({"name": "garage-triage", "dependencies": {"next": "15.0.0"}}), encoding="utf-8",
+        )
+        registry = self._nextjs_architecture_framework()
+        proposal = analyze_repository(self.root, registry)
+        answers = {"garage-triage": {"purpose": "Turns free-text complaints into structured tickets."}}
+        result = apply_onboarding_answers(self.root, proposal, answers, registry)
+        manifest = load_yaml(component_manifest_path(self.root, "garage-triage"))
+        self.assertEqual(["PLAT-WEB-NEXT"], manifest["architecture"]["profile_ids"])
+        self.assertNotIn("garage-triage", result["empty_profile_id_suggestions"])
+
+    def test_apply_applies_style_answer_on_top_of_tier1_detected_next(self):
+        # The interaction this gap's fix could easily have missed: `next` is
+        # Tier-1-detected (so `frameworks` was never asked/answered), but
+        # architecture_style *was* separately answered (it's always offered
+        # alongside/instead of the frameworks question for npm components, see
+        # plan/active/npm-architecture-profile-detection.md task 3). The
+        # analyze-time-suggestion path must still apply that style refinement,
+        # not just the fresh-frameworks path.
+        (self.root / "package.json").write_text(
+            json.dumps({"name": "garage-triage", "dependencies": {"next": "15.0.0"}}), encoding="utf-8",
+        )
+        registry = self._nextjs_architecture_framework()
+        proposal = analyze_repository(self.root, registry)
+        answers = {
+            "garage-triage": {
+                "purpose": "Turns free-text complaints into structured tickets.",
+                "architecture_style": "web-app",
+            },
+        }
+        apply_onboarding_answers(self.root, proposal, answers, registry)
+        manifest = load_yaml(component_manifest_path(self.root, "garage-triage"))
+        self.assertEqual(
+            ["PLAT-WEB-NEXT", "PLAT-WEB-NEXT-APP"], manifest["architecture"]["profile_ids"],
+        )
 
     def test_fresh_npm_repository_is_all_create_with_questions(self):
         proposal = analyze_repository(self.root)
