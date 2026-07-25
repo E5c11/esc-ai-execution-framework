@@ -98,6 +98,20 @@ def tools_for_policy(policy_document: dict[str, Any]) -> list[str]:
     return tools
 
 
+def granted_categories(policy_document: dict[str, Any]) -> list[str]:
+    """
+    The category-level granted list (read/edit/execute/network) a policy
+    document allows -- same deny-by-default discipline as tools_for_policy, one
+    level coarser (categories, not concrete tool names). Recorded into every
+    run's bindings.consent (see ClaudeCodeAdapter.execute) so a task's actual
+    historical scope stays reconstructable from run.json the same way its
+    tool_grant already does -- see
+    plan/future/pre-flight-consent-and-bounded-autonomy.md layer 1.
+    """
+    permissions = policy_document.get("permissions", {})
+    return [category for category in ("read", "edit", "execute", "network") if permissions.get(category) == "allow"]
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -317,7 +331,14 @@ class ClaudeCodeAdapter:
             # up automatically either way.
             kept = finalize_worktree(repository, task["id"], f"escape-ai task {task['id']} ({status})")
             worktree_info = {"branch": worktree_branch(task["id"]), "kept": kept}
-        write_json(run_dir / "run.json", {"schema_version": 1, "run": {"id": run_id, "task_id": task["id"], "status": status, "created_at": created_at, "started_at": created_at, "ended_at": _now()}, "bindings": {"adapter": adapter["id"], "workspace": workspace["id"], "policy": policy["id"], "tool_grant": tool_grant, "instruction_bundle": "instruction-bundle.json", "worktree": worktree_info}, "events": "events.jsonl", "artifacts": [artifact_name] if artifact_name else [], "adapter_metadata": {"provider": "claude-code", "session_id": claude_session_id, "total_cost_usd": outcome.get("total_cost_usd"), "num_turns": outcome.get("num_turns")}})
+        # See plan/future/pre-flight-consent-and-bounded-autonomy.md layer 1:
+        # recorded unconditionally, same treatment as tool_grant -- an honest
+        # record of what categories this run actually operated under, not a
+        # decision about whether a human needed to be asked (that's the
+        # orchestrator CLI's call, made before dispatch, from this same field
+        # on a task's prior runs).
+        consent = {"granted_categories": granted_categories(policy_document), "granted_at": created_at}
+        write_json(run_dir / "run.json", {"schema_version": 1, "run": {"id": run_id, "task_id": task["id"], "status": status, "created_at": created_at, "started_at": created_at, "ended_at": _now()}, "bindings": {"adapter": adapter["id"], "workspace": workspace["id"], "policy": policy["id"], "tool_grant": tool_grant, "instruction_bundle": "instruction-bundle.json", "worktree": worktree_info, "consent": consent}, "events": "events.jsonl", "artifacts": [artifact_name] if artifact_name else [], "adapter_metadata": {"provider": "claude-code", "session_id": claude_session_id, "total_cost_usd": outcome.get("total_cost_usd"), "num_turns": outcome.get("num_turns")}})
         write_json(run_dir / "run-metrics.json", run_metrics(
             run_id, task["id"], "claude-code", status, run_dir / "task-context.json", context,
             round((time.monotonic() - started) * 1000), self._tool_events(messages), self._token_response(outcome),

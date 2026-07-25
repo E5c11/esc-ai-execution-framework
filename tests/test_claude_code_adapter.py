@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from esc_exec.claude_code_adapter import (
     ClaudeCodeAdapter, ClaudeCodeClient, ClaudeCodeError, _extract_architecture_style, _suggest_groundable_answers,
-    claude_auth_status, suggest_architecture_coverage_gap, suggest_onboarding_answers, suggest_work_type_drift,
-    tools_for_policy,
+    claude_auth_status, granted_categories, suggest_architecture_coverage_gap, suggest_onboarding_answers,
+    suggest_work_type_drift, tools_for_policy,
 )
 from esc_exec.contracts import validate_contract
 from esc_exec.model import ManifestState
@@ -215,6 +215,37 @@ class ClaudeCodeAdapterTests(unittest.TestCase):
 
     def test_missing_permissions_key_denies_everything(self):
         self.assertEqual([], tools_for_policy({"permissions": {}}))
+
+    def test_granted_categories_lists_only_allowed_categories(self):
+        self.assertEqual(
+            ["read", "edit"],
+            granted_categories({"permissions": {"read": "allow", "edit": "allow", "execute": "deny", "network": "ask"}}),
+        )
+
+    def test_granted_categories_empty_for_missing_permissions(self):
+        self.assertEqual([], granted_categories({"permissions": {}}))
+
+    def test_run_json_records_consent_binding(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._repository(root)
+            add_route(registry, "repositories", "ampm-backend", repository)
+            policy_path = root / "edit-policy.yaml"
+            write_yaml(policy_path, {
+                "schema_version": 1,
+                "policy": {"id": "edit-allowed", "description": "Permit edits for this test."},
+                "permissions": {"read": "allow", "edit": "allow", "execute": "deny", "network": "deny"},
+            })
+            run_dir = ClaudeCodeAdapter(FakeClaudeCodeClient(), registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml", examples / "adapter-claude-code.yaml", policy_path,
+            )
+            run = json.loads((run_dir / "run.json").read_text())
+            consent = run["bindings"]["consent"]
+            self.assertEqual(["read", "edit"], consent["granted_categories"])
+            self.assertTrue(consent["granted_at"])
 
     def test_execute_wires_actual_tool_grant_into_request_and_run_bindings(self):
         framework = Path(__file__).parents[1]
