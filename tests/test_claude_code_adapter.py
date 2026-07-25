@@ -293,6 +293,49 @@ class ClaudeCodeAdapterTests(unittest.TestCase):
             self.assertEqual("instruction-bundle.json", run["bindings"]["instruction_bundle"])
 
 
+class PermissionDenialsArtifactTests(unittest.TestCase):
+    """
+    See plan/future/pre-flight-consent-and-bounded-autonomy.md layer 6: a
+    permission denial doesn't necessarily set is_error, so it's captured as its
+    own artifact rather than folded into run status here -- the Scheduler
+    decides what a denial means for the Store-level run status.
+    """
+
+    def test_no_denials_writes_empty_denials_list(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            add_route(registry, "repositories", "ampm-backend", ClaudeCodeAdapterTests._repository(root))
+            run_dir = ClaudeCodeAdapter(FakeClaudeCodeClient(), registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml", examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            document = json.loads((run_dir / "permission-denials.json").read_text())
+            self.assertEqual([], document["denials"])
+
+    def test_denials_in_result_message_are_recorded_without_failing_the_run(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        messages = _stream_json()
+        messages[-1]["permission_denials"] = [
+            {"tool_name": "Bash", "tool_use_id": "toolu-9", "tool_input": {"command": "rm -rf /tmp/x"}},
+        ]
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            add_route(registry, "repositories", "ampm-backend", ClaudeCodeAdapterTests._repository(root))
+            run_dir = ClaudeCodeAdapter(FakeClaudeCodeClient(messages=messages), registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml", examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            run = json.loads((run_dir / "run.json").read_text())
+            self.assertEqual("succeeded", run["run"]["status"])  # this adapter's own honest report
+            document = json.loads((run_dir / "permission-denials.json").read_text())
+            self.assertEqual(1, len(document["denials"]))
+            self.assertEqual("Bash", document["denials"][0]["tool_name"])
+            self.assertEqual({"command": "rm -rf /tmp/x"}, document["denials"][0]["tool_input"])
+
+
 class WorktreeIsolationTests(unittest.TestCase):
     """
     See plan/future/pre-flight-consent-and-bounded-autonomy.md layer 4:

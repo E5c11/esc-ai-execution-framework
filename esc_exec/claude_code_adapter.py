@@ -324,6 +324,25 @@ class ClaudeCodeAdapter:
             status = "failed"
         self._write_events(run_dir / "events.jsonl", events)
         outcome = result_message(messages) or {}
+        # See plan/future/pre-flight-consent-and-bounded-autonomy.md layer 6: a
+        # `HARD_DENY_SETTINGS` hit (or any other Claude Code permission check)
+        # doesn't necessarily set is_error -- the model often just narrates
+        # around it and finishes normally (verified live 2026-07-24: a denied
+        # `rm -rf` produced a clean `terminal_reason: "completed"` result with
+        # the denial only visible in `permission_denials`). Recorded here as its
+        # own artifact, deliberately not folded into `status` above -- this
+        # adapter's own honest report is "the agent didn't crash," same
+        # precedent as a not-clean verification result leaving run.json's own
+        # status as "succeeded" and letting the orchestrator's Scheduler (which
+        # sees this artifact, not this function) decide the Store-level status
+        # (see scheduler.py's _permission_denials/_work).
+        write_json(run_dir / "permission-denials.json", {
+            "schema_version": 1, "task_id": task["id"], "generated_at": _now(),
+            "denials": [
+                {"tool_name": denial.get("tool_name"), "tool_input": denial.get("tool_input")}
+                for denial in (outcome.get("permission_denials") or [])
+            ],
+        })
         worktree_info = None
         if workspace["kind"] == "worktree":
             # Runs regardless of success/failure -- even a failed run may have left
