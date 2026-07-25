@@ -117,6 +117,44 @@ class ClaudeCodeError(RuntimeError):
     pass
 
 
+# A small, static, universal deny list -- see plan/future/pre-flight-consent-and-
+# bounded-autonomy.md layer 3. Applies to every invocation regardless of what a
+# task's policy otherwise grants (a task can be scoped to less than this implies,
+# never more) -- fixed in code, not task- or policy-configurable, and deliberately
+# kept short: the goal is a short list of things that are *never* fine
+# autonomously, not an attempt to enumerate everything that *is* fine (that's what
+# the tool-category grant already covers). `rm -rf` is denied unconditionally
+# rather than trying to distinguish "safe" targets (e.g. `rm -rf build/`) from
+# unsafe ones, because `--settings` patterns match the command string, not a
+# resolved path -- there's no reliable way to tell those apart at the pattern
+# level. Legitimate cache-clearing goes through the build tool's own clean task
+# (`./gradlew clean`) instead, already reachable once `execute` is granted at all.
+# Verified live 2026-07-24: `--permission-mode auto` alone, with no explicit
+# `--settings` rule, let an `rm -rf` execute with zero intervention
+# (`permission_denials: []`) -- an explicit deny pattern is the only mechanism
+# confirmed to actually block a destructive command headlessly, cleanly, with no
+# hang (`bypassPermissions` is kept as the permission mode; see that plan doc's
+# "What we found" for why `auto` was tried and dropped).
+HARD_DENY_SETTINGS: dict[str, Any] = {
+    "permissions": {
+        "deny": [
+            "Bash(git push --force*)",
+            "Bash(git push -f*)",
+            "Bash(git reset --hard*)",
+            "Bash(git clean -f*)",
+            "Bash(git branch -D*)",
+            "Bash(git filter-branch*)",
+            "Bash(rm -rf*)",
+            "Bash(sudo*)",
+            "Read(**/*firebase-adminsdk*.json)",
+            "Read(**/*.pem)",
+            "Read(**/.env)",
+            "Edit(**/.git/**)",
+        ],
+    },
+}
+
+
 class ClaudeCodeClient:
     """
     Shells out to the real `claude` CLI in headless print mode. `--tools` is the
@@ -126,6 +164,8 @@ class ClaudeCodeClient:
     execution, it does not widen the tool allowlist. Verified live 2026-07-19 against
     claude-code 2.1.215: `--output-format stream-json` in print mode requires
     `--verbose` (undocumented in `--help`, confirmed by the CLI's own runtime error).
+    Every invocation also carries `HARD_DENY_SETTINGS` via `--settings` -- a second,
+    independent layer underneath the tool allowlist, not a substitute for it.
     """
 
     def __init__(self, binary: str = "claude", timeout: float = 600.0):
@@ -139,6 +179,7 @@ class ClaudeCodeClient:
             self.binary, "-p", "--output-format", output_format,
             "--permission-mode", "bypassPermissions",
             "--tools", ",".join(tools),
+            "--settings", json.dumps(HARD_DENY_SETTINGS),
         ]
         if verbose:
             command.append("--verbose")

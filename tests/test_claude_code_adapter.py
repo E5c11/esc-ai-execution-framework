@@ -283,6 +283,42 @@ class ClaudeCodeClientAskTests(unittest.TestCase):
                 ClaudeCodeClient().ask(Path("/tmp"), "prompt", ["Read"])
 
 
+class HardDenySettingsTests(unittest.TestCase):
+    """
+    See plan/future/pre-flight-consent-and-bounded-autonomy.md layer 3: a small,
+    static, universal deny list carried via --settings on every invocation,
+    independent of whatever a task's policy otherwise grants.
+    """
+
+    def test_run_carries_hard_deny_settings(self):
+        fake_result = MagicMock(returncode=0, stdout=json.dumps(_stream_json()[-1]) + "\n", stderr="")
+        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result) as mock_run:
+            ClaudeCodeClient().run(Path("/tmp"), "prompt", ["Bash"])
+            command = mock_run.call_args.args[0]
+            self.assertIn("--settings", command)
+            settings = json.loads(command[command.index("--settings") + 1])
+            self.assertIn("Bash(rm -rf*)", settings["permissions"]["deny"])
+            self.assertIn("Bash(git push --force*)", settings["permissions"]["deny"])
+            self.assertIn("Bash(git reset --hard*)", settings["permissions"]["deny"])
+            self.assertIn("Read(**/.env)", settings["permissions"]["deny"])
+            self.assertIn("Edit(**/.git/**)", settings["permissions"]["deny"])
+
+    def test_ask_also_carries_hard_deny_settings(self):
+        fake_result = MagicMock(returncode=0, stdout='{"result": "ok", "is_error": false}', stderr="")
+        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result) as mock_run:
+            ClaudeCodeClient().ask(Path("/tmp"), "prompt", ["Read"])
+            command = mock_run.call_args.args[0]
+            self.assertIn("--settings", command)
+
+    def test_hard_deny_settings_is_valid_json_regardless_of_tool_grant(self):
+        fake_result = MagicMock(returncode=0, stdout=json.dumps(_stream_json()[-1]) + "\n", stderr="")
+        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result) as mock_run:
+            ClaudeCodeClient().run(Path("/tmp"), "prompt", [])
+            command = mock_run.call_args.args[0]
+            settings = json.loads(command[command.index("--settings") + 1])
+            self.assertTrue(settings["permissions"]["deny"])
+
+
 class FakeAskClient:
     def __init__(self, outcome):
         self.outcome, self.calls = outcome, []
