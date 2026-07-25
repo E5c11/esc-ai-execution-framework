@@ -19,6 +19,7 @@ from esc_exec.registry import resolve_route
 from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
 from esc_exec.measurement import run_metrics
+from esc_exec.worktree import WorktreeError, ensure_worktree, finalize_worktree, worktree_branch
 
 
 def claude_cli_available(binary: str = "claude") -> bool:
@@ -258,6 +259,15 @@ class ClaudeCodeAdapter:
         run_id, created_at = f"run-{uuid.uuid4().hex}", _now()
         run_dir = repository / ".esc-ai" / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=False)
+        # workspace.kind == "worktree" -- see
+        # plan/future/pre-flight-consent-and-bounded-autonomy.md layer 4: the agent
+        # edits a disposable worktree, not the live checkout, so an unanticipated
+        # change is contained and reviewable rather than needing to be prevented
+        # mid-run. Context is still built from `repository`, not the worktree --
+        # architecture indexes/manifests are identical at worktree-creation time,
+        # and staying off the mutable worktree here keeps this resolution stable
+        # across retries of the same task.
+        execution_root = ensure_worktree(repository, task["id"]) if workspace["kind"] == "worktree" else repository
         context = build_task_context(repository, task_path, run_dir / "task-context.json", registry_path=self.registry_path)
         events: list[dict[str, Any]] = []
         messages: list[dict[str, Any]] = []
@@ -274,7 +284,7 @@ class ClaudeCodeAdapter:
         claude_session_id = session_id
         try:
             messages = self.client.run(
-                repository, self._prompt(context, tool_grant), tool_grant,
+                execution_root, self._prompt(context, tool_grant), tool_grant,
                 adapter.get("configuration", {}).get("model"), resume_session_id=session_id,
             )
             outcome = result_message(messages)
@@ -300,7 +310,14 @@ class ClaudeCodeAdapter:
             status = "failed"
         self._write_events(run_dir / "events.jsonl", events)
         outcome = result_message(messages) or {}
-        write_json(run_dir / "run.json", {"schema_version": 1, "run": {"id": run_id, "task_id": task["id"], "status": status, "created_at": created_at, "started_at": created_at, "ended_at": _now()}, "bindings": {"adapter": adapter["id"], "workspace": workspace["id"], "policy": policy["id"], "tool_grant": tool_grant, "instruction_bundle": "instruction-bundle.json"}, "events": "events.jsonl", "artifacts": [artifact_name] if artifact_name else [], "adapter_metadata": {"provider": "claude-code", "session_id": claude_session_id, "total_cost_usd": outcome.get("total_cost_usd"), "num_turns": outcome.get("num_turns")}})
+        worktree_info = None
+        if workspace["kind"] == "worktree":
+            # Runs regardless of success/failure -- even a failed run may have left
+            # real edits worth reviewing, and one that changed nothing gets cleaned
+            # up automatically either way.
+            kept = finalize_worktree(repository, task["id"], f"escape-ai task {task['id']} ({status})")
+            worktree_info = {"branch": worktree_branch(task["id"]), "kept": kept}
+        write_json(run_dir / "run.json", {"schema_version": 1, "run": {"id": run_id, "task_id": task["id"], "status": status, "created_at": created_at, "started_at": created_at, "ended_at": _now()}, "bindings": {"adapter": adapter["id"], "workspace": workspace["id"], "policy": policy["id"], "tool_grant": tool_grant, "instruction_bundle": "instruction-bundle.json", "worktree": worktree_info}, "events": "events.jsonl", "artifacts": [artifact_name] if artifact_name else [], "adapter_metadata": {"provider": "claude-code", "session_id": claude_session_id, "total_cost_usd": outcome.get("total_cost_usd"), "num_turns": outcome.get("num_turns")}})
         write_json(run_dir / "run-metrics.json", run_metrics(
             run_id, task["id"], "claude-code", status, run_dir / "task-context.json", context,
             round((time.monotonic() - started) * 1000), self._tool_events(messages), self._token_response(outcome),

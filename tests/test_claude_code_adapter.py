@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import MagicMock, patch
@@ -43,11 +44,13 @@ def _stream_json(*, session_id="ses-created", tool_use_id="toolu-1", summary="Th
 class FakeClaudeCodeClient:
     def __init__(self, messages=None):
         self.messages = messages if messages is not None else _stream_json()
+        self.directories: list[Path] = []
         self.prompts: list[str] = []
         self.tool_grants: list[list[str]] = []
         self.resume_ids: list[str | None] = []
 
     def run(self, directory, prompt, tools, model=None, resume_session_id=None):
+        self.directories.append(directory)
         self.prompts.append(prompt)
         self.tool_grants.append(tools)
         self.resume_ids.append(resume_session_id)
@@ -257,6 +260,115 @@ class ClaudeCodeAdapterTests(unittest.TestCase):
             self.assertIn("safety_and_operator_policy", levels)
             run = json.loads((run_dir / "run.json").read_text())
             self.assertEqual("instruction-bundle.json", run["bindings"]["instruction_bundle"])
+
+
+class WorktreeIsolationTests(unittest.TestCase):
+    """
+    See plan/future/pre-flight-consent-and-bounded-autonomy.md layer 4:
+    workspace.kind == "worktree" routes the agent's cwd to a disposable git
+    worktree instead of the live checkout, and the run finalizes it (commit,
+    then keep-if-diff / remove-if-not) afterward.
+    """
+
+    @staticmethod
+    def _git_repository(root: Path) -> Path:
+        repository = ClaudeCodeAdapterTests._repository(root)
+        run = lambda *args: subprocess.run(["git", "-C", str(repository), *args], capture_output=True, text=True, check=True)
+        run("init", "-q", "-b", "main")
+        run("config", "user.email", "test@example.com")
+        run("config", "user.name", "Test")
+        run("add", "-A")
+        run("commit", "-q", "-m", "initial")
+        return repository
+
+    @staticmethod
+    def _worktree_workspace(root: Path) -> Path:
+        path = root / "workspace-worktree.yaml"
+        write_yaml(path, {
+            "schema_version": 1,
+            "workspace": {
+                "id": "workspace-ampm-worktree", "kind": "worktree",
+                "repository": "ampm-backend", "isolation": "filesystem",
+            },
+        })
+        return path
+
+    def test_agent_runs_inside_a_worktree_not_the_live_checkout(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._git_repository(root)
+            add_route(registry, "repositories", "ampm-backend", repository)
+            client = FakeClaudeCodeClient()
+            ClaudeCodeAdapter(client, registry).execute(
+                examples / "task.yaml", self._worktree_workspace(root),
+                examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            from esc_exec.worktree import worktree_path
+            self.assertEqual(worktree_path(repository, "task-index-review"), client.directories[0])
+            self.assertNotEqual(repository, client.directories[0])
+
+    def test_run_with_no_edits_removes_the_worktree_after(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._git_repository(root)
+            add_route(registry, "repositories", "ampm-backend", repository)
+            run_dir = ClaudeCodeAdapter(FakeClaudeCodeClient(), registry).execute(
+                examples / "task.yaml", self._worktree_workspace(root),
+                examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            from esc_exec.worktree import worktree_path
+            self.assertFalse(worktree_path(repository, "task-index-review").is_dir())
+            run = json.loads((run_dir / "run.json").read_text())
+            self.assertEqual({"branch": "esc-ai-task-task-index-review", "kept": False}, run["bindings"]["worktree"])
+
+    def test_run_that_edits_files_keeps_the_worktree_for_review(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._git_repository(root)
+            add_route(registry, "repositories", "ampm-backend", repository)
+
+            class EditingClient(FakeClaudeCodeClient):
+                def run(self, directory, prompt, tools, model=None, resume_session_id=None):
+                    (directory / "agent-added-file.txt").write_text("edited\n", encoding="utf-8")
+                    return super().run(directory, prompt, tools, model, resume_session_id)
+
+            run_dir = ClaudeCodeAdapter(EditingClient(), registry).execute(
+                examples / "task.yaml", self._worktree_workspace(root),
+                examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            from esc_exec.worktree import has_uncommitted_changes, worktree_path
+            worktree = worktree_path(repository, "task-index-review")
+            self.assertTrue(worktree.is_dir())
+            self.assertFalse(has_uncommitted_changes(worktree))  # finalize committed it
+            run = json.loads((run_dir / "run.json").read_text())
+            self.assertEqual({"branch": "esc-ai-task-task-index-review", "kept": True}, run["bindings"]["worktree"])
+            self.assertFalse((repository / "agent-added-file.txt").is_file())  # never touched the live checkout
+
+    def test_local_workspace_kind_is_unaffected_no_worktree_created(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._repository(root)  # not a git repo at all
+            add_route(registry, "repositories", "ampm-backend", repository)
+            run_dir = ClaudeCodeAdapter(FakeClaudeCodeClient(), registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml",  # kind: local
+                examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            run = json.loads((run_dir / "run.json").read_text())
+            self.assertIsNone(run["bindings"]["worktree"])
+
+    _repository = staticmethod(ClaudeCodeAdapterTests._repository)
 
 
 class ClaudeCodeClientAskTests(unittest.TestCase):
