@@ -39,18 +39,39 @@ by other agent runtimes and orchestrators.
 
 ## Getting Started
 
-The framework is at an early bootstrap stage. See [`INSTRUCTIONS.md`](./INSTRUCTIONS.md)
-for the canonical usage model and [`workflows/README.md`](./workflows/README.md) for
-framework development work.
+See [`INSTRUCTIONS.md`](./INSTRUCTIONS.md) for the canonical usage model and
+[`.esc-ai/workflows/README.md`](./.esc-ai/workflows/README.md) for framework
+development work.
 
-The implementation language will be selected while specifying the first executable
-vertical slice. See the active framework
-[`roadmap`](./workflows/active/roadmap.md) for the agreed sequence.
+Implemented in Python. See the active framework
+[`roadmap`](./.esc-ai/workflows/active/roadmap.md) for the agreed sequence.
 
-## Bootstrap CLI
+## CLI
 
-Capability 1 uses a small Python CLI for route registration and Gradle component
-manifest generation:
+`esc-exec` has grown well past its original bootstrap slice. Command groups, by
+area:
+
+- `route` — machine-local repository/framework routes (`add`, `resolve`, `list`,
+  `validate`, `ecosystem add`)
+- `system` — the machine-local system catalog itself (`migrate`)
+- `repository` — onboarding analysis and answer application (`analyze`, `answer`)
+- `manifest` — repository/component manifests (`generate`, `validate`)
+- `index` — JSON routing indexes (`generate`, `validate`, `match`)
+- `contract` — provider-neutral execution contracts (`validate`, `validate-set`)
+- `report` — bounded summaries of retained reports (`summarize`)
+- `context` — bounded task-specific routing context (`build`)
+- `verification` — progressive verification plans (`profile generate`, `plan`,
+  `execute`)
+- `architecture` — component architecture fitness functions (`profile generate`,
+  `check`)
+- `checkpoint` — durable task handoffs (`create`, `update`, `inspect`)
+- `dependency` — component dependencies and consumer/impact analysis
+  (`generate`, `validate`, `impact`)
+- `measurement` — execution-efficiency comparisons (`compare`)
+- `opencode` — the OpenCode reference adapter (`execute`, `fork`)
+
+The original bootstrap slice is still the simplest way to onboard and index a
+repository:
 
 ```bash
 python -m esc_exec route add repository my-project /path/to/my-project

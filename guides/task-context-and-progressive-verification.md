@@ -62,12 +62,25 @@ The fixed order is:
 Execution stops at the first failed gate. Checks from multiple selected components are
 merged deterministically and identical command arrays are deduplicated.
 
-The orchestrator materializes the plan before starting OpenCode, so missing profiles
+The orchestrator materializes the plan before dispatching any adapter (Claude Code,
+OpenCode, or Codex — the same `_AdapterRuntime` wraps all three), so missing profiles
 block early with a generation command. Generated run artifacts are available through
 `GET /runs/{id}/context` and `GET /runs/{id}/verification-plan`.
 
+## Execution
+
+Gates are executed for real, independent of whichever adapter did the agent work
+(`execute_verification_plan`): real subprocess exit codes and durations, JUnit reports
+summarized and attached per check, execution stops at the first failed gate. The
+Scheduler reads this result, not the agent's own claim of success, to decide whether a
+run succeeded. Dependency-driven impact checks are generated too, not future work: the
+`impact` gate merges the `component` gate's checks from every transitive consumer of
+the task's declared components, from real dependency-graph analysis.
+
 ## Current boundary
 
-This capability plans gates but does not execute their commands. A future verification
-runtime will resolve focused inputs, run ready checks under policy, and attach compact
-verification summaries. Capability 10 will generate dependency-driven impact checks.
+The one gap that remains: the `focused` gate's `{test_filter}` input is never resolved
+automatically. A Gradle-generated profile always marks it `requires: [test_filter]`, so
+its status is `input-required` and it is skipped at execution time — only `component`,
+`impact`, and `final` actually run today. Resolving a real focused test selector (and
+running it under policy) is the remaining future work here.
