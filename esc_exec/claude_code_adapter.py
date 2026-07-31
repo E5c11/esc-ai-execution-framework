@@ -183,7 +183,7 @@ class ClaudeCodeClient:
     independent layer underneath the tool allowlist, not a substitute for it.
     """
 
-    def __init__(self, binary: str = "claude", timeout: float = 600.0):
+    def __init__(self, binary: str = "claude", timeout: float = 1800.0):
         self.binary, self.timeout = binary, timeout
 
     def _invoke(

@@ -102,7 +102,7 @@ class CodexClient:
       tools_for_policy.
     """
 
-    def __init__(self, binary: str = "codex", timeout: float = 600.0):
+    def __init__(self, binary: str = "codex", timeout: float = 1800.0):
         self.binary, self.timeout = binary, timeout
 
     def run(self, directory: Path, prompt: str, sandbox: str, model: str | None = None) -> list[dict[str, Any]]:
