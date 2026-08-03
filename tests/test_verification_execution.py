@@ -5,7 +5,7 @@ import unittest
 
 from esc_exec.contracts import validate_contract
 from esc_exec.model import ManifestState
-from esc_exec.verification_execution import execute_verification_plan
+from esc_exec.verification_execution import classify_failure, execute_verification_plan
 
 
 def _ok_command() -> list[str]:
@@ -84,6 +84,42 @@ class ExecuteVerificationPlanTests(unittest.TestCase):
             self.assertEqual("not-run", gates_by_id["final"]["outcome"])
             result = validate_contract("verification-result", run_dir / "verification-result.json")
             self.assertEqual(ManifestState.VALID, result.state, result.messages)
+
+    def test_failed_check_is_annotated_with_a_failure_category(self):
+        plan = _plan([
+            {"id": "focused", "status": "not-applicable", "checks": []},
+            {
+                "id": "component", "status": "ready",
+                "checks": [{
+                    "id": "first",
+                    "command": [sys.executable, "-c", "import sys; sys.stderr.write('Connection refused'); sys.exit(1)"],
+                }],
+            },
+            {"id": "impact", "status": "ready", "checks": []},
+            {"id": "final", "status": "ready", "checks": []},
+        ])
+        with TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            run_dir = workspace / ".esc-ai" / "runs" / "run-category"
+            document = execute_verification_plan(plan, workspace, run_dir)
+            check = document["gates"][1]["checks"][0]
+            self.assertEqual("failed", check["status"])
+            self.assertEqual("connectivity", check["failure_category"])
+            result = validate_contract("verification-result", run_dir / "verification-result.json")
+            self.assertEqual(ManifestState.VALID, result.state, result.messages)
+
+    def test_passed_check_has_no_failure_category(self):
+        plan = _plan([
+            {"id": "focused", "status": "not-applicable", "checks": []},
+            {"id": "component", "status": "ready", "checks": [{"id": "first", "command": _ok_command()}]},
+            {"id": "impact", "status": "ready", "checks": []},
+            {"id": "final", "status": "ready", "checks": []},
+        ])
+        with TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            run_dir = workspace / ".esc-ai" / "runs" / "run-clean"
+            document = execute_verification_plan(plan, workspace, run_dir)
+            self.assertIsNone(document["gates"][1]["checks"][0]["failure_category"])
 
     def test_input_required_gate_is_skipped_not_executed(self):
         plan = _plan([
@@ -331,6 +367,35 @@ class ExecuteVerificationPlanTests(unittest.TestCase):
         with TemporaryDirectory() as workspace_temp, TemporaryDirectory() as run_temp:
             with self.assertRaises(ValueError):
                 execute_verification_plan(plan, Path(workspace_temp), Path(run_temp))
+
+
+class ClassifyFailureTests(unittest.TestCase):
+    def test_dependency_resolution_from_401(self):
+        self.assertEqual(
+            "dependency-resolution",
+            classify_failure("", "Could not GET 'https://maven.pkg.github.com/...': Received status code 401"),
+        )
+
+    def test_connectivity_from_connection_refused(self):
+        self.assertEqual("connectivity", classify_failure("", "java.net.ConnectException: Connection refused"))
+
+    def test_compile_error_from_cannot_find_symbol(self):
+        self.assertEqual("compile-error", classify_failure("", "MyFile.java:10: error: cannot find symbol"))
+
+    def test_assertion_from_assertion_error(self):
+        self.assertEqual("assertion", classify_failure("", "org.opentest4j.AssertionFailedError: AssertionError"))
+
+    def test_unmatched_output_is_other(self):
+        self.assertEqual("other", classify_failure("some ordinary output", "some ordinary error"))
+
+    def test_dependency_resolution_takes_priority_over_generic_patterns(self):
+        # A 401 from a registry often also contains generic noise -- the most
+        # specific category (the one named in the dogfooding finding this
+        # implements) must win, not whichever pattern happens to be checked last.
+        self.assertEqual(
+            "dependency-resolution",
+            classify_failure("", "Execution failed for task ':compileKotlin'.\nReceived status code 401"),
+        )
 
 
 if __name__ == "__main__":

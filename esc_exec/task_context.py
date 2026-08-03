@@ -176,6 +176,9 @@ def generate_gradle_verification_profile(repository: Path, component_id: str) ->
 def build_verification_plan(repository: Path, task_path: Path, output: Path) -> dict[str, Any]:
     task_document = load_yaml(task_path)
     task = task_document["task"]
+    verification_scope = task_document["scope"].get("verification_scope", "repository")
+    if verification_scope not in {"repository", "task"}:
+        raise ValueError(f"scope.verification_scope must be 'repository' or 'task', got {verification_scope!r}")
     root_index = load_json(repository / ESC_AI_DIR / INDEX_FILE)
     indexed = {item["id"]: item for item in root_index["components"]}
     profiles = []
@@ -243,6 +246,21 @@ def build_verification_plan(repository: Path, task_path: Path, output: Path) -> 
             if command not in seen["impact"]:
                 seen["impact"].add(command)
                 gate_checks["impact"].append(check)
+    if verification_scope == "task":
+        # plan/active/pre-flight-doctor-and-gate-prerequisites.md design 5: skip
+        # the generated profile's repo-root `final` gate (which pulls in every
+        # component's tests, including ones this task never touches) and instead
+        # aggregate just this task's own scoped components' and their impacted
+        # consumers' own test tasks -- exactly the checks `component`/`impact`
+        # already collected above, deduped the same way those two were built.
+        final_checks: list[dict[str, Any]] = []
+        final_seen: set[tuple[str, ...]] = set()
+        for check in gate_checks["component"] + gate_checks["impact"]:
+            command = tuple(check.get("command", []))
+            if command not in final_seen:
+                final_seen.add(command)
+                final_checks.append(check)
+        gate_checks["final"] = final_checks
     gates = []
     for gate in GATES:
         checks = gate_checks[gate]

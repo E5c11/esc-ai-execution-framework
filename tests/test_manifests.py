@@ -173,6 +173,40 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(ManifestState.INVALID, results[0].state)
         self.assertTrue(any("profile_ids" in message for message in results[0].messages))
 
+    def test_worktree_inherit_absent_is_valid(self):
+        generate_gradle_manifests(self.root)
+        results = validate_repository(self.root)
+        self.assertNotEqual(ManifestState.INVALID, results[0].state)
+
+    def test_worktree_inherit_valid_list_is_accepted(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["worktree_inherit"] = ["local.properties", ".env"]
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertNotEqual(ManifestState.INVALID, results[0].state)
+
+    def test_worktree_inherit_non_list_is_invalid(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["worktree_inherit"] = "local.properties"
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertEqual(ManifestState.INVALID, results[0].state)
+        self.assertTrue(any("worktree_inherit" in message for message in results[0].messages))
+
+    def test_worktree_inherit_with_blank_entry_is_invalid(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["worktree_inherit"] = ["local.properties", "  "]
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertEqual(ManifestState.INVALID, results[0].state)
+        self.assertTrue(any("worktree_inherit" in message for message in results[0].messages))
+
     def test_schema_documents_are_valid_yaml_mappings(self):
         schemas = Path(__file__).parents[1] / "schemas"
         for schema in schemas.glob("*.schema.yaml"):

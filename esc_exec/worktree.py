@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -75,6 +76,32 @@ def ensure_worktree(repository: Path, task_id: str) -> Path:
     if result.returncode != 0:
         raise WorktreeError(f"git worktree add failed: {result.stderr.strip()}")
     return path
+
+
+def copy_inherited_files(repository: Path, worktree: Path, files: list[str]) -> list[str]:
+    """
+    Copies each repository-root-relative path in `files` from the main checkout
+    into a fresh worktree, if the source file exists there -- gitignored local
+    config (`local.properties`, `.env`) that a fresh worktree's own git checkout
+    never contains (correct git-worktree behavior, but a real footgun for any
+    build that depends on it -- see
+    plan/active/pre-flight-doctor-and-gate-prerequisites.md). `files` is a plain
+    list handed in by the caller (the repository manifest's opt-in
+    `worktree_inherit` declaration) -- this function only knows how to copy,
+    never how the list was decided. A repository without a given file configured
+    yet is not an error; inheritance is opt-in per file, not required. Returns the
+    subset that was actually copied, for the caller to log/record.
+    """
+    copied = []
+    for relative in files:
+        source = repository / relative
+        if not source.is_file():
+            continue
+        destination = worktree / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        copied.append(relative)
+    return copied
 
 
 def has_uncommitted_changes(worktree: Path) -> bool:

@@ -17,7 +17,7 @@ from esc_exec.indexing import generate_indexes
 from esc_exec.manifests import (
     component_manifest_path, component_manifest_relative_path, repository_manifest_path,
 )
-from esc_exec.yaml_io import write_yaml
+from esc_exec.yaml_io import load_yaml, write_yaml
 
 
 def _stream_json(*, session_id="ses-created", tool_use_id="toolu-1", summary="The content component owns lesson publishing.", is_error=False):
@@ -426,6 +426,59 @@ class WorktreeIsolationTests(unittest.TestCase):
             run = json.loads((run_dir / "run.json").read_text())
             self.assertEqual({"branch": "esc-ai-task-task-index-review", "kept": True}, run["bindings"]["worktree"])
             self.assertFalse((repository / "agent-added-file.txt").is_file())  # never touched the live checkout
+
+    def test_worktree_inherits_declared_gitignored_files(self):
+        """
+        plan/active/pre-flight-doctor-and-gate-prerequisites.md: a repository
+        manifest's `worktree_inherit` list must be copied into every fresh
+        worktree -- a fresh git worktree never contains gitignored local config
+        on its own, which otherwise breaks any build that depends on one
+        (local.properties-style credentials) on every single task run.
+        """
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = ClaudeCodeAdapterTests._repository(root)
+            (repository / ".gitignore").write_text("local.properties\n", encoding="utf-8")
+            git = lambda *args: subprocess.run(["git", "-C", str(repository), *args], capture_output=True, text=True, check=True)
+            git("init", "-q", "-b", "main")
+            git("config", "user.email", "test@example.com")
+            git("config", "user.name", "Test")
+            git("add", "-A")
+            git("commit", "-q", "-m", "initial")
+            manifest_path = repository_manifest_path(repository)
+            manifest = load_yaml(manifest_path)
+            manifest["worktree_inherit"] = ["local.properties"]
+            write_yaml(manifest_path, manifest)
+            generate_indexes(repository)  # re-index: the manifest edit above changed its digest
+            (repository / "local.properties").write_text("sdk.dir=/x\n", encoding="utf-8")
+            add_route(registry, "repositories", "ampm-backend", repository)
+
+            class InheritanceCheckingClient(FakeClaudeCodeClient):
+                def __init__(self):
+                    super().__init__()
+                    self.local_properties_content = None
+
+                def run(self, directory, prompt, tools, model=None, resume_session_id=None):
+                    # Checked mid-run (before finalize_worktree can remove a
+                    # no-diff worktree) -- the only reliable moment the copied
+                    # file is guaranteed to still be on disk.
+                    properties = directory / "local.properties"
+                    self.local_properties_content = properties.read_text(encoding="utf-8") if properties.is_file() else None
+                    return super().run(directory, prompt, tools, model, resume_session_id)
+
+            client = InheritanceCheckingClient()
+            ClaudeCodeAdapter(client, registry).execute(
+                examples / "task.yaml", self._worktree_workspace(root),
+                examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            self.assertEqual("sdk.dir=/x\n", client.local_properties_content)
+            from esc_exec.worktree import worktree_path
+            # gitignored -- copying it in must not itself count as a change that
+            # keeps the worktree around for review.
+            self.assertFalse(worktree_path(repository, "task-index-review").is_dir())
 
     def test_local_workspace_kind_is_unaffected_no_worktree_created(self):
         framework = Path(__file__).parents[1]

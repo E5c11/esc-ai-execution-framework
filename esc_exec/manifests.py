@@ -82,6 +82,24 @@ def _architecture_selector_errors(data: dict[str, Any]) -> list[str]:
     return []
 
 
+def _worktree_inherit_errors(data: dict[str, Any]) -> list[str]:
+    """
+    Optional repository-manifest field declaring gitignored local files (e.g.
+    `local.properties`, `.env`) to copy from the main checkout into every fresh
+    task worktree -- see plan/active/pre-flight-doctor-and-gate-prerequisites.md.
+    Absent entirely is valid (no inheritance, today's default behavior);
+    present-but-malformed is not.
+    """
+    worktree_inherit = data.get("worktree_inherit")
+    if worktree_inherit is None:
+        return []
+    if not isinstance(worktree_inherit, list) or not all(
+        isinstance(item, str) and item.strip() for item in worktree_inherit
+    ):
+        return ["worktree_inherit must be a list of non-empty strings"]
+    return []
+
+
 def generate_gradle_manifests(
     root: Path, repository_id: str | None = None, components: list[tuple[str, Path]] | None = None,
 ) -> list[Path]:
@@ -234,6 +252,7 @@ def validate_repository(root: Path, registry_path: Path | None = None) -> list[V
         repo_messages.append("components must be a non-empty list")
         components = []
     repo_messages.extend(_architecture_selector_errors(repository))
+    repo_messages.extend(_worktree_inherit_errors(repository))
     results.append(ValidationResult(
         ManifestState.INVALID if repo_messages else ManifestState.VALID,
         str(repository_path),

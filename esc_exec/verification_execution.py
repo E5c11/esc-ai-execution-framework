@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -11,6 +12,39 @@ from esc_exec.reporting import summarize_junit_reports
 
 
 DEFAULT_TIMEOUT_SECONDS = 1800
+
+# Ordered most-specific-first: a message matching an earlier category (e.g. a 401
+# from a package registry) shouldn't fall through and also match a more generic
+# later one. See plan/active/pre-flight-doctor-and-gate-prerequisites.md finding
+# #6 -- these are exactly the categories that finding names.
+_FAILURE_CATEGORY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("dependency-resolution", re.compile(
+        r"\b401\b|\b403\b|Could not resolve|Unauthorized|PKIX path building failed|authentication required",
+        re.IGNORECASE,
+    )),
+    ("connectivity", re.compile(
+        r"Connection refused|ConnectException|Could not connect|Network is unreachable|Connection timed out",
+        re.IGNORECASE,
+    )),
+    # Anchored to real compiler-output shapes (`File.java:12: error: ...`) rather
+    # than a bare `error:`, which false-positives on ordinary `XxxError: message`
+    # exception reprs (e.g. `AssertionFailedError: AssertionError`).
+    ("compile-error", re.compile(r"\.\w+:\d+:\s*error:|cannot find symbol|compilation failed|SyntaxError", re.IGNORECASE)),
+    ("assertion", re.compile(r"AssertionError|assertion failed|Tests? failed|expected:.*but was", re.IGNORECASE)),
+)
+
+
+def classify_failure(stdout: str, stderr: str) -> str:
+    """
+    Best-effort category for a failed/error check's captured output. Additive to
+    the raw stdout/stderr log, never a replacement for it: degrades to "other"
+    for anything that doesn't match a known pattern rather than guessing.
+    """
+    combined = f"{stderr}\n{stdout}"
+    for category, pattern in _FAILURE_CATEGORY_PATTERNS:
+        if pattern.search(combined):
+            return category
+    return "other"
 
 
 def _now() -> str:
@@ -27,6 +61,7 @@ def _not_run_check(check: dict[str, Any], status: str) -> dict[str, Any]:
         "stdout_path": None,
         "stderr_path": None,
         "report_path": None,
+        "failure_category": None,
     }
 
 
@@ -118,25 +153,31 @@ def execute_verification_plan(
                     timeout=timeout_seconds,
                 )
                 duration_ms = round((time.monotonic() - started) * 1000)
-                stdout_file.write_text(completed.stdout, encoding="utf-8")
-                stderr_file.write_text(completed.stderr, encoding="utf-8")
+                stdout_text, stderr_text = completed.stdout, completed.stderr
+                stdout_file.write_text(stdout_text, encoding="utf-8")
+                stderr_file.write_text(stderr_text, encoding="utf-8")
                 exit_code = completed.returncode
                 status = "passed" if exit_code == 0 else "failed"
             except subprocess.TimeoutExpired as exc:
                 duration_ms = round((time.monotonic() - started) * 1000)
-                stdout_file.write_text(exc.stdout or "", encoding="utf-8")
-                stderr_file.write_text((exc.stderr or "") + "\n[verification gate timed out]", encoding="utf-8")
+                stdout_text = exc.stdout or ""
+                stderr_text = (exc.stderr or "") + "\n[verification gate timed out]"
+                stdout_file.write_text(stdout_text, encoding="utf-8")
+                stderr_file.write_text(stderr_text, encoding="utf-8")
                 exit_code = None
                 status = "error"
             except OSError as exc:
                 duration_ms = round((time.monotonic() - started) * 1000)
-                stdout_file.write_text("", encoding="utf-8")
-                stderr_file.write_text(str(exc), encoding="utf-8")
+                stdout_text = ""
+                stderr_text = str(exc)
+                stdout_file.write_text(stdout_text, encoding="utf-8")
+                stderr_file.write_text(stderr_text, encoding="utf-8")
                 exit_code = None
                 status = "error"
             report_path = None
             if status in {"passed", "failed"}:
                 report_path = _locate_report(check, workspace_root, run_dir, gate_id)
+            failure_category = classify_failure(stdout_text, stderr_text) if status in {"failed", "error"} else None
             check_results.append({
                 "id": check["id"],
                 "command": command,
@@ -146,6 +187,7 @@ def execute_verification_plan(
                 "stdout_path": stdout_relative,
                 "stderr_path": stderr_relative,
                 "report_path": report_path,
+                "failure_category": failure_category,
             })
             if status != "passed":
                 stopped = True

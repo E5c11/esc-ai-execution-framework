@@ -165,6 +165,42 @@ class TaskContextTests(unittest.TestCase):
         manifest = load_yaml(component_manifest_path(self.root, "content"))
         self.assertEqual("esc-report-profile.yaml", manifest["paths"]["report_profile"])
 
+    def test_verification_scope_defaults_to_repository_unchanged(self):
+        generate_gradle_verification_profile(self.root, "content")
+        generate_indexes(self.root)
+        generate_dependency_graph(self.root)
+        plan = build_verification_plan(self.root, self.task, self.root / "plan.json")
+        final_checks = next(gate for gate in plan["gates"] if gate["id"] == "final")["checks"]
+        self.assertEqual([["./gradlew", "test"]], [check["command"] for check in final_checks])
+
+    def test_verification_scope_task_narrows_final_gate_to_scoped_components(self):
+        generate_gradle_verification_profile(self.root, "content")
+        generate_indexes(self.root)
+        generate_dependency_graph(self.root)
+        scoped_task = self.root / "task-scoped.yaml"
+        task_document = load_yaml(self.task)
+        task_document["scope"]["verification_scope"] = "task"
+        write_yaml(scoped_task, task_document)
+        plan = build_verification_plan(self.root, scoped_task, self.root / "plan.json")
+        final_checks = next(gate for gate in plan["gates"] if gate["id"] == "final")["checks"]
+        component_checks = next(gate for gate in plan["gates"] if gate["id"] == "component")["checks"]
+        # Scoped down to content's own test task, not the repo-root `./gradlew test`
+        # the generated profile's own `final` gate would otherwise declare.
+        self.assertEqual([["./gradlew", ":content:test"]], [check["command"] for check in final_checks])
+        self.assertEqual(component_checks, final_checks)
+        self.assertEqual(ManifestState.VALID, validate_contract("verification-plan", self.root / "plan.json").state)
+
+    def test_verification_scope_rejects_unknown_value(self):
+        generate_gradle_verification_profile(self.root, "content")
+        generate_indexes(self.root)
+        generate_dependency_graph(self.root)
+        bad_task = self.root / "task-bad-scope.yaml"
+        task_document = load_yaml(self.task)
+        task_document["scope"]["verification_scope"] = "everything"
+        write_yaml(bad_task, task_document)
+        with self.assertRaisesRegex(ValueError, "verification_scope"):
+            build_verification_plan(self.root, bad_task, self.root / "plan.json")
+
     def test_existing_report_profile_is_not_overwritten(self):
         manifest_path = component_manifest_path(self.root, "content")
         report_profile_path = manifest_path.parent / "esc-report-profile.yaml"

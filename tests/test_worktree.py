@@ -4,9 +4,9 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from esc_exec.worktree import (
-    WorktreeError, commit_worktree_changes, diff_summary, ensure_excluded, ensure_worktree,
-    finalize_worktree, has_commits_ahead, has_uncommitted_changes, merge_worktree, remove_worktree,
-    worktree_branch, worktree_path,
+    WorktreeError, commit_worktree_changes, copy_inherited_files, diff_summary, ensure_excluded,
+    ensure_worktree, finalize_worktree, has_commits_ahead, has_uncommitted_changes, merge_worktree,
+    remove_worktree, worktree_branch, worktree_path,
 )
 
 
@@ -55,6 +55,34 @@ class WorktreeTests(unittest.TestCase):
             self.assertTrue(path.is_dir())
             branches = _git(repository, "branch", "--list", worktree_branch("task-1")).stdout
             self.assertEqual(1, branches.count(worktree_branch("task-1")))
+
+    def test_copy_inherited_files_copies_existing_gitignored_files(self):
+        with TemporaryDirectory() as temp:
+            repository = _init_repository(Path(temp))
+            (repository / "local.properties").write_text("sdk.dir=/x\n", encoding="utf-8")
+            worktree = ensure_worktree(repository, "task-1")
+            self.assertFalse((worktree / "local.properties").is_file())  # never git-tracked
+            copied = copy_inherited_files(repository, worktree, ["local.properties"])
+            self.assertEqual(["local.properties"], copied)
+            self.assertEqual("sdk.dir=/x\n", (worktree / "local.properties").read_text(encoding="utf-8"))
+
+    def test_copy_inherited_files_skips_files_that_do_not_exist(self):
+        with TemporaryDirectory() as temp:
+            repository = _init_repository(Path(temp))
+            worktree = ensure_worktree(repository, "task-1")
+            copied = copy_inherited_files(repository, worktree, ["local.properties", ".env"])
+            self.assertEqual([], copied)
+            self.assertFalse((worktree / "local.properties").is_file())
+
+    def test_copy_inherited_files_creates_nested_destination_directories(self):
+        with TemporaryDirectory() as temp:
+            repository = _init_repository(Path(temp))
+            (repository / "config").mkdir()
+            (repository / "config" / "secrets.env").write_text("KEY=1\n", encoding="utf-8")
+            worktree = ensure_worktree(repository, "task-1")
+            copied = copy_inherited_files(repository, worktree, ["config/secrets.env"])
+            self.assertEqual(["config/secrets.env"], copied)
+            self.assertEqual("KEY=1\n", (worktree / "config" / "secrets.env").read_text(encoding="utf-8"))
 
     def test_ensure_excluded_adds_entry_once(self):
         with TemporaryDirectory() as temp:
