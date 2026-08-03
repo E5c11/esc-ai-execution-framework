@@ -123,6 +123,15 @@ bounded, preserve decisions, reference full artifacts by relative path, and comm
 checkpoint after review. Treat orchestrator failure checkpoints as transient candidates
 until their project-relevant state is deliberately promoted.
 
+Execution is headless: no human is present to answer a clarifying question mid-run, and
+none will see one until the run has already ended. When the task's own scope and
+completion conditions leave a genuinely ambiguous judgment call, make the reasonable,
+well-evidenced choice yourself and record it as a decision (with its rationale) in the
+checkpoint or run summary, rather than stopping to ask. A run that produces no changes
+because it asked a question instead of proceeding is not distinguishable from wasted
+effort by anyone reviewing it later — see the orchestrator's `succeeded-no-changes` run
+status.
+
 Validate `.esc-ai/esc-dependencies.json` before impact planning. Use the transitive consumer
 closure to populate the impact gate from consumer-owned verification profiles; never
 silently omit a consumer because its profile is missing.
