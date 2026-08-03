@@ -226,6 +226,78 @@ class ExecuteVerificationPlanTests(unittest.TestCase):
             result = validate_contract("verification-result", run_dir / "verification-result.json")
             self.assertEqual(ManifestState.VALID, result.state, result.messages)
 
+    def _write_coverage_profile(self, workspace: Path, threshold=None) -> None:
+        limits = "  counter_type: LINE\n" + (f"  threshold: {threshold}\n" if threshold is not None else "")
+        (workspace / "esc-coverage-report-profile.yaml").write_text(
+            f"schema_version: 1\nprofile:\n  id: p\n  format: coverage-xml\nlimits:\n{limits}",
+            encoding="utf-8",
+        )
+
+    def test_coverage_check_below_threshold_overrides_a_passing_exit_code(self):
+        """
+        plan/done/coverage-threshold-enforcement.md: the report-generation
+        command itself exits 0 regardless of coverage level -- this is the
+        real enforcement.
+        """
+        plan = _plan([
+            {"id": "focused", "status": "not-applicable", "checks": []},
+            {
+                "id": "component", "status": "ready",
+                "checks": [{
+                    "id": "content-coverage", "command": _ok_command(),
+                    "report": {"glob": "reports/*.xml", "profile": "esc-coverage-report-profile.yaml"},
+                }],
+            },
+            {"id": "impact", "status": "not-applicable", "checks": []},
+            {"id": "final", "status": "not-applicable", "checks": []},
+        ])
+        with TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            self._write_coverage_profile(workspace, threshold=90)
+            reports_dir = workspace / "reports"
+            reports_dir.mkdir()
+            (reports_dir / "report.xml").write_text(
+                '<report name="s"><counter type="LINE" missed="20" covered="80"/></report>', encoding="utf-8",
+            )
+            run_dir = workspace / ".esc-ai" / "runs" / "run-coverage-1"
+            document = execute_verification_plan(plan, workspace, run_dir)
+            check = document["gates"][1]["checks"][0]
+            self.assertEqual("failed", check["status"])
+            self.assertEqual(0, check["exit_code"])  # the command itself succeeded
+            self.assertEqual("coverage-threshold", check["failure_category"])
+            self.assertIsNotNone(check["report_path"])
+            self.assertEqual("failed", document["status"])
+            result = validate_contract("verification-result", run_dir / "verification-result.json")
+            self.assertEqual(ManifestState.VALID, result.state, result.messages)
+
+    def test_coverage_check_meeting_threshold_stays_passed(self):
+        plan = _plan([
+            {"id": "focused", "status": "not-applicable", "checks": []},
+            {
+                "id": "component", "status": "ready",
+                "checks": [{
+                    "id": "content-coverage", "command": _ok_command(),
+                    "report": {"glob": "reports/*.xml", "profile": "esc-coverage-report-profile.yaml"},
+                }],
+            },
+            {"id": "impact", "status": "not-applicable", "checks": []},
+            {"id": "final", "status": "not-applicable", "checks": []},
+        ])
+        with TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            self._write_coverage_profile(workspace, threshold=50)
+            reports_dir = workspace / "reports"
+            reports_dir.mkdir()
+            (reports_dir / "report.xml").write_text(
+                '<report name="s"><counter type="LINE" missed="20" covered="80"/></report>', encoding="utf-8",
+            )
+            run_dir = workspace / ".esc-ai" / "runs" / "run-coverage-2"
+            document = execute_verification_plan(plan, workspace, run_dir)
+            check = document["gates"][1]["checks"][0]
+            self.assertEqual("passed", check["status"])
+            self.assertIsNone(check["failure_category"])
+            self.assertEqual("passed", document["status"])
+
     def test_report_glob_aggregates_multiple_matches(self):
         plan = _plan([
             {"id": "focused", "status": "not-applicable", "checks": []},

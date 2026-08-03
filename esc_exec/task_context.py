@@ -6,7 +6,7 @@ from typing import Any
 from esc_exec.architecture_lookup import load_architecture_index, resolve_architecture_docs, stub_documents
 from esc_exec.indexing import INDEX_FILE, validate_indexes
 from esc_exec.json_io import load_json, write_json
-from esc_exec.manifests import ESC_AI_DIR, repository_manifest_path
+from esc_exec.manifests import ESC_AI_DIR, merged_testing, repository_manifest_path, resolve_testing_fact
 from esc_exec.registry import resolve_route
 from esc_exec.yaml_io import load_yaml, write_yaml
 from esc_exec.model import ManifestState
@@ -15,6 +15,12 @@ from esc_exec.dependencies import analyze_impact
 
 GATES = ("focused", "component", "impact", "final")
 ARCHITECTURE_FRAMEWORK_ID = "esc-ai-architecture-framework"
+
+# Small, explicit map from a declared testing.coverage.tool to the real Gradle task
+# that generates its JaCoCo-format-compatible XML report -- see
+# plan/done/coverage-threshold-enforcement.md. An unknown tool name is a real error
+# at profile-generation time, not a silently-skipped coverage check.
+COVERAGE_GRADLE_TASKS = {"kover": "koverXmlReport", "jacoco": "jacocoTestReport"}
 
 
 def _profile_ids(manifest: dict[str, Any]) -> list[str]:
@@ -165,6 +171,42 @@ def generate_gradle_verification_profile(repository: Path, component_id: str) ->
             }],
         },
     }
+
+    repository_manifest = load_yaml(repository_manifest_path(repository))
+    coverage = resolve_testing_fact(merged_testing(repository_manifest, manifest), "coverage")
+    if coverage:
+        tool = coverage.get("tool")
+        if tool not in COVERAGE_GRADLE_TASKS:
+            raise ValueError(
+                f"testing.coverage.tool must be one of {sorted(COVERAGE_GRADLE_TASKS)} for automatic "
+                f"Gradle coverage-check generation, got {tool!r}"
+            )
+        coverage_task = COVERAGE_GRADLE_TASKS[tool]
+        coverage_gradle_task = f"{project}:{coverage_task}" if project != ":" else coverage_task
+        coverage_report_profile_path = manifest_path.parent / "esc-coverage-report-profile.yaml"
+        if not coverage_report_profile_path.exists():
+            limits: dict[str, Any] = {"counter_type": "LINE"}
+            if coverage.get("threshold") is not None:
+                limits["threshold"] = coverage["threshold"]
+            write_yaml(coverage_report_profile_path, {
+                "schema_version": 1,
+                "profile": {"id": f"{component_id}-coverage-report", "format": "coverage-xml"},
+                "limits": limits,
+            })
+        coverage_report_profile_relative = str(coverage_report_profile_path.relative_to(repository))
+        # Ordered after the test check (see plan/done/coverage-threshold-
+        # enforcement.md open question 3): coverage without passing tests first
+        # is meaningless data, and stop_on_failure already means this check
+        # never even runs if the test check above it failed.
+        profile["gates"]["component"].append({
+            "id": f"{component_id}-coverage",
+            "command": ["./gradlew", coverage_gradle_task],
+            "report": {
+                "glob": f"{component_path}/build/reports/{tool}/**/*.xml",
+                "profile": coverage_report_profile_relative,
+            },
+        })
+
     write_yaml(profile_path, profile)
     paths = manifest.setdefault("paths", {})
     paths["verification_profile"] = profile_path.name

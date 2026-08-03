@@ -201,6 +201,69 @@ class TaskContextTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "verification_scope"):
             build_verification_plan(self.root, bad_task, self.root / "plan.json")
 
+    def test_coverage_check_omitted_when_not_declared(self):
+        generate_gradle_verification_profile(self.root, "content")
+        manifest_dir = component_manifest_path(self.root, "content").parent
+        profile = load_yaml(manifest_dir / "esc-verification-profile.yaml")
+        self.assertEqual(1, len(profile["gates"]["component"]))
+
+    def test_coverage_check_emitted_for_kover(self):
+        """plan/done/coverage-threshold-enforcement.md: real, verified-live map
+        from a declared coverage tool to its Gradle report-generation task."""
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {"common": {"coverage": {"tool": "kover"}}}
+        write_yaml(repository_path, repository)
+        generate_gradle_verification_profile(self.root, "content")
+        manifest_dir = component_manifest_path(self.root, "content").parent
+        profile = load_yaml(manifest_dir / "esc-verification-profile.yaml")
+        component_checks = profile["gates"]["component"]
+        self.assertEqual(2, len(component_checks))
+        coverage_check = component_checks[1]
+        self.assertEqual("content-coverage", coverage_check["id"])
+        self.assertEqual(["./gradlew", ":content:koverXmlReport"], coverage_check["command"])
+        self.assertEqual("content/build/reports/kover/**/*.xml", coverage_check["report"]["glob"])
+        coverage_report_profile = load_yaml(self.root / coverage_check["report"]["profile"])
+        self.assertEqual("coverage-xml", coverage_report_profile["profile"]["format"])
+        self.assertEqual("LINE", coverage_report_profile["limits"]["counter_type"])
+        self.assertNotIn("threshold", coverage_report_profile["limits"])
+
+    def test_coverage_check_emitted_for_jacoco_with_threshold(self):
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {"common": {"coverage": {"tool": "jacoco", "threshold": 80}}}
+        write_yaml(repository_path, repository)
+        generate_gradle_verification_profile(self.root, "content")
+        manifest_dir = component_manifest_path(self.root, "content").parent
+        profile = load_yaml(manifest_dir / "esc-verification-profile.yaml")
+        coverage_check = profile["gates"]["component"][1]
+        self.assertEqual(["./gradlew", ":content:jacocoTestReport"], coverage_check["command"])
+        coverage_report_profile = load_yaml(self.root / coverage_check["report"]["profile"])
+        self.assertEqual(80, coverage_report_profile["limits"]["threshold"])
+
+    def test_unknown_coverage_tool_raises(self):
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {"common": {"coverage": {"tool": "codecov"}}}
+        write_yaml(repository_path, repository)
+        with self.assertRaisesRegex(ValueError, "coverage.tool"):
+            generate_gradle_verification_profile(self.root, "content")
+
+    def test_component_level_coverage_override_wins_over_repository(self):
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {"common": {"coverage": {"tool": "kover"}}}
+        write_yaml(repository_path, repository)
+        component_manifest = component_manifest_path(self.root, "content")
+        data = load_yaml(component_manifest)
+        data["testing"] = {"common": {"coverage": {"tool": "jacoco"}}}
+        write_yaml(component_manifest, data)
+        generate_gradle_verification_profile(self.root, "content")
+        manifest_dir = component_manifest_path(self.root, "content").parent
+        profile = load_yaml(manifest_dir / "esc-verification-profile.yaml")
+        coverage_check = profile["gates"]["component"][1]
+        self.assertEqual(["./gradlew", ":content:jacocoTestReport"], coverage_check["command"])
+
     def test_existing_report_profile_is_not_overwritten(self):
         manifest_path = component_manifest_path(self.root, "content")
         report_profile_path = manifest_path.parent / "esc-report-profile.yaml"

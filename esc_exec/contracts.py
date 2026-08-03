@@ -19,6 +19,7 @@ CONTRACT_FORMATS = {
     "artifact": "json",
     "event": "jsonl",
     "verification-summary": "json",
+    "coverage-summary": "json",
     "task-context": "json",
     "verification-plan": "json",
     "architecture-report": "json",
@@ -102,6 +103,19 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
     "verification-result": {
         "root": ("schema_version", "task_id", "generated_at", "status", "gates"),
     },
+    "coverage-summary": {
+        "root": ("schema_version", "coverage", "totals", "threshold", "full_report"),
+        "coverage": ("profile", "source_format", "status", "generated_at"),
+        # "totals.missed"/"covered" are validated separately below (0 is a valid,
+        # non-null value the generic required-field check already tolerates).
+        "totals": ("counter_type", "percent"),
+        # "threshold.required" is deliberately absent here -- it's legitimately
+        # null when no threshold was declared (report-only), and the generic
+        # required-field check treats a null value as "missing". Its presence
+        # and shape are validated in the coverage-summary-specific block below.
+        "threshold": ("met",),
+        "full_report": ("path", "media_type"),
+    },
 }
 
 ENUMS: dict[str, dict[str, set[str]]] = {
@@ -141,6 +155,11 @@ ENUMS: dict[str, dict[str, set[str]]] = {
         "process.kind": {"onboarding", "planning"},
     },
     "verification-result": {"status": {"passed", "failed"}},
+    "coverage-summary": {
+        "coverage.source_format": {"coverage-xml"},
+        "coverage.status": {"passed", "failed"},
+        "totals.counter_type": {"INSTRUCTION", "BRANCH", "LINE", "METHOD", "CLASS", "COMPLEXITY"},
+    },
 }
 
 
@@ -304,6 +323,33 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
                     messages.append(prefix + f"verification.status must be {expected_status} for these totals")
             report_path = _value_at(document, "full_report.path")
             if isinstance(report_path, str) and Path(report_path).is_absolute():
+                messages.append(prefix + "full_report.path must be workspace-relative")
+        if kind == "coverage-summary":
+            totals = document.get("totals", {})
+            valid_totals = (
+                isinstance(totals.get("missed"), int) and totals["missed"] >= 0
+                and isinstance(totals.get("covered"), int) and totals["covered"] >= 0
+                and isinstance(totals.get("percent"), (int, float)) and 0 <= totals["percent"] <= 100
+            )
+            if not valid_totals:
+                messages.append(prefix + "totals.missed/covered must be non-negative integers and totals.percent must be 0-100")
+            threshold = document.get("threshold", {})
+            if "required" not in threshold:
+                messages.append(prefix + "threshold.required is required (may be null)")
+            required = threshold.get("required")
+            if required is not None and (not isinstance(required, (int, float)) or required < 0):
+                messages.append(prefix + "threshold.required must be a non-negative number or null")
+            if not isinstance(threshold.get("met"), bool):
+                messages.append(prefix + "threshold.met must be a boolean")
+            elif valid_totals and isinstance(required, (int, float)):
+                expected_met = totals["percent"] >= required
+                if threshold["met"] != expected_met:
+                    messages.append(prefix + "threshold.met is inconsistent with totals.percent and threshold.required")
+            expected_status = "passed" if required is None or threshold.get("met") else "failed"
+            if _value_at(document, "coverage.status") != expected_status:
+                messages.append(prefix + f"coverage.status must be {expected_status} for this threshold")
+            coverage_report_path = _value_at(document, "full_report.path")
+            if isinstance(coverage_report_path, str) and Path(coverage_report_path).is_absolute():
                 messages.append(prefix + "full_report.path must be workspace-relative")
         if kind == "task-context":
             routing_components = _value_at(document, "routing.components")

@@ -30,6 +30,90 @@ def _profile(path: Path) -> tuple[str, int, int]:
     return profile["id"], max_failures, max_message_chars
 
 
+# Kover's XML report is, in practice, JaCoCo-format-compatible -- verified directly
+# against real generated reports from both tools (Kover 0.9.6 in ampm-kmp, JaCoCo in
+# ampm-backend): both share the exact same <report>/<package>/<class> structure and
+# the same report-level, direct-child <counter type=... missed=... covered=.../>
+# vocabulary. One parser covers both; see
+# plan/done/coverage-threshold-enforcement.md.
+COVERAGE_COUNTER_TYPES = {"INSTRUCTION", "BRANCH", "LINE", "METHOD", "CLASS", "COMPLEXITY"}
+
+
+def _coverage_profile(path: Path) -> tuple[str, str, float | None]:
+    document = load_yaml(path)
+    profile = document.get("profile", {})
+    limits = document.get("limits", {})
+    if document.get("schema_version") != 1:
+        raise ValueError("report profile schema_version must be 1")
+    if profile.get("format") != "coverage-xml" or not profile.get("id"):
+        raise ValueError("report profile must declare an id and coverage-xml format")
+    counter_type = limits.get("counter_type", "LINE")
+    if counter_type not in COVERAGE_COUNTER_TYPES:
+        raise ValueError(f"limits.counter_type must be one of {sorted(COVERAGE_COUNTER_TYPES)}")
+    threshold = limits.get("threshold")
+    if threshold is not None and (not isinstance(threshold, (int, float)) or threshold < 0):
+        raise ValueError("limits.threshold must be a non-negative number if present")
+    return profile["id"], counter_type, threshold
+
+
+def summarize_coverage_report(
+    source: Path,
+    profile_path: Path,
+    output: Path,
+    full_report_path: str | None = None,
+) -> dict[str, Any]:
+    """
+    Parses a JaCoCo-format coverage XML report (produced by JaCoCo directly, or by
+    Kover, which emits the same schema) and compares its report-level, whole-module
+    coverage percentage against an optional declared threshold. `status` is
+    `"passed"` unconditionally when no threshold is declared (report-only,
+    informational) or when the percentage meets the threshold; `"failed"` otherwise
+    -- the tool's own report-generation command exits 0 regardless of coverage
+    level, so this is the actual enforcement, not the subprocess exit code.
+    """
+    profile_id, counter_type, threshold = _coverage_profile(profile_path)
+    report_path = full_report_path or source.name
+    if Path(report_path).is_absolute():
+        raise ValueError("full report path must be workspace-relative")
+    try:
+        root = ET.parse(source).getroot()
+    except ET.ParseError as exc:
+        raise ValueError(f"invalid coverage XML: {exc}") from exc
+    if root.tag != "report":
+        raise ValueError("coverage XML root must be report")
+    # Only the report's own direct-child counters are the whole-module totals --
+    # the same-named counters nested inside <package>/<class>/<sourcefile> are
+    # finer-grained and not what "overall coverage" means here.
+    counter = next(
+        (child for child in root if child.tag == "counter" and child.get("type") == counter_type),
+        None,
+    )
+    if counter is None:
+        raise ValueError(f"coverage XML has no report-level counter of type {counter_type}")
+    try:
+        missed, covered = int(counter.get("missed", "")), int(counter.get("covered", ""))
+    except ValueError as exc:
+        raise ValueError("coverage XML counter missed/covered must be integers") from exc
+    total = missed + covered
+    percent = round((covered / total) * 100, 2) if total else 100.0
+    met = threshold is None or percent >= threshold
+    status = "passed" if met else "failed"
+    document = {
+        "schema_version": 1,
+        "coverage": {
+            "profile": profile_id,
+            "source_format": "coverage-xml",
+            "status": status,
+            "generated_at": _now(),
+        },
+        "totals": {"counter_type": counter_type, "missed": missed, "covered": covered, "percent": percent},
+        "threshold": {"required": threshold, "met": met},
+        "full_report": {"path": report_path, "media_type": "application/xml"},
+    }
+    write_json(output, document)
+    return document
+
+
 def summarize_junit(
     source: Path,
     profile_path: Path,

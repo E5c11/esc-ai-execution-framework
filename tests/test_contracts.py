@@ -31,6 +31,7 @@ class ContractTests(unittest.TestCase):
             "initiative": examples / "initiative.yaml",
             "process-metrics": examples / "process-metrics.json",
             "verification-result": examples / "verification-result.json",
+            "coverage-summary": examples / "coverage-summary.json",
         }
         self.assertEqual(set(CONTRACT_FORMATS), set(paths))
         for kind, path in paths.items():

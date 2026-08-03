@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "coverage": {
+    "profile": "content-coverage-report",
+    "source_format": "coverage-xml",
+    "status": "passed",
+    "generated_at": "2026-07-17T12:00:03Z"
+  },
+  "totals": {
+    "counter_type": "LINE",
+    "missed": 87,
+    "covered": 1024,
+    "percent": 92.17
+  },
+  "threshold": {
+    "required": 80,
+    "met": true
+  },
+  "full_report": {
+    "path": ".execution/runs/run-index-review-001/reports/coverage.xml",
+    "media_type": "application/xml"
+  }
+}

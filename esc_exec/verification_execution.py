@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from esc_exec.json_io import write_json
-from esc_exec.reporting import summarize_junit_reports
+from esc_exec.reporting import summarize_coverage_report, summarize_junit_reports
+from esc_exec.yaml_io import load_yaml
 
 
 DEFAULT_TIMEOUT_SECONDS = 1800
@@ -80,25 +81,45 @@ def _log_paths(run_dir: Path, workspace_root: Path, gate_id: str, check_id: str)
 
 def _locate_report(
     check: dict[str, Any], workspace_root: Path, run_dir: Path, gate_id: str
-) -> str | None:
-    """Best-effort JUnit-report enrichment. Never raises: a missing or malformed
-    report must not turn an otherwise-verified check result into a crash."""
+) -> tuple[str | None, str | None]:
+    """
+    Best-effort report enrichment. Never raises: a missing or malformed report
+    must not turn an otherwise-verified check result into a crash. Returns
+    `(report_path, status_override)` -- `status_override` is only ever
+    `"failed"`, and only for a `coverage-xml` report whose own summarized
+    status is `"failed"` (a declared `coverage.threshold` wasn't met). The
+    report-generation command itself (`./gradlew koverXmlReport`, say) exits 0
+    regardless of coverage level -- this is the actual enforcement, not the
+    subprocess exit code. See plan/done/coverage-threshold-enforcement.md.
+    """
     report = check.get("report")
     if not report:
-        return None
+        return None, None
     matches = sorted(workspace_root.glob(report["glob"]))
     if not matches:
-        return None
+        return None, None
     profile_path = workspace_root / report["profile"]
     output = run_dir / "reports" / f"{gate_id}-{check['id']}-summary.json"
     try:
-        summarize_junit_reports(
-            matches, profile_path, output,
-            full_report_path=str(matches[0].relative_to(workspace_root)),
-        )
+        report_format = load_yaml(profile_path).get("profile", {}).get("format")
     except (OSError, ValueError):
-        return None
-    return str(output.relative_to(workspace_root))
+        return None, None
+    try:
+        if report_format == "coverage-xml":
+            summary = summarize_coverage_report(
+                matches[0], profile_path, output,
+                full_report_path=str(matches[0].relative_to(workspace_root)),
+            )
+            status_override = "failed" if summary["coverage"]["status"] == "failed" else None
+        else:
+            summarize_junit_reports(
+                matches, profile_path, output,
+                full_report_path=str(matches[0].relative_to(workspace_root)),
+            )
+            status_override = None
+    except (OSError, ValueError):
+        return None, None
+    return str(output.relative_to(workspace_root)), status_override
 
 
 def execute_verification_plan(
@@ -174,10 +195,20 @@ def execute_verification_plan(
                 stderr_file.write_text(stderr_text, encoding="utf-8")
                 exit_code = None
                 status = "error"
-            report_path = None
+            report_path, status_override = None, None
             if status in {"passed", "failed"}:
-                report_path = _locate_report(check, workspace_root, run_dir, gate_id)
-            failure_category = classify_failure(stdout_text, stderr_text) if status in {"failed", "error"} else None
+                report_path, status_override = _locate_report(check, workspace_root, run_dir, gate_id)
+            if status_override:
+                status = status_override
+            if status in {"failed", "error"}:
+                # A coverage-threshold miss is ground truth from the report
+                # itself, not a guess -- never run through the generic
+                # stdout/stderr pattern classifier, which would find nothing
+                # to match (the report-generation command succeeded) and
+                # degrade to "other".
+                failure_category = "coverage-threshold" if status_override else classify_failure(stdout_text, stderr_text)
+            else:
+                failure_category = None
             check_results.append({
                 "id": check["id"],
                 "command": command,
