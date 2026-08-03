@@ -137,6 +137,75 @@ class KmpComponentIndexingTests(unittest.TestCase):
         data = json.loads((self.root / ".esc-ai/components/feature-home/esc-index.json").read_text(encoding="utf-8"))
         self.assertEqual(["com/example/home"], data["structure"]["package_areas"])
 
+    def test_component_index_embeds_resolved_testing_facts_for_matched_platform_only(self):
+        """
+        plan/done/manifest-testing-facts-and-documentation-obligation.md: this
+        is the real integration point -- `_prompt` (every adapter) tells the
+        agent to read exactly this file for each declared component, unlike
+        `build_instruction_bundle`'s levels, which no adapter's prompt actually
+        consumes.
+        """
+        from esc_exec.manifests import repository_manifest_path
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {
+            "common": {"unit_framework": "kotlin-test", "lint_tools": ["detekt"]},
+            "platforms": {
+                "android": {"source_sets": ["androidMain"], "ui_testing": {"framework": "ai-adb-compose-testtag"}},
+                "ios": {"source_sets": ["iosMain"], "ui_testing": {"framework": "xctest"}},
+            },
+        }
+        write_yaml(repository_path, repository)
+        generate_indexes(self.root)
+        import json
+        data = json.loads((self.root / ".esc-ai/components/feature-home/esc-index.json").read_text(encoding="utf-8"))
+        self.assertEqual("kotlin-test", data["testing"]["common"]["unit_framework"])
+        # This fixture only has commonMain/androidMain -- ios must not appear,
+        # since this component has no iosMain/nativeMain source set at all.
+        self.assertEqual({"android"}, set(data["testing"]["platforms"]))
+        self.assertEqual("ai-adb-compose-testtag", data["testing"]["platforms"]["android"]["ui_testing"]["framework"])
+
+    def test_component_index_testing_absorbs_source_set_naming_drift(self):
+        """Real finding: most ampm-kmp components use `iosMain`, but some use
+        `nativeMain` for the same conceptual target -- source_sets is what
+        absorbs this, not the declared platform name itself."""
+        (self.root / "feature/home/src/nativeMain/kotlin/com/example/home").mkdir(parents=True)
+        generate_gradle_manifests(self.root)  # re-detect paths to pick up the new source set
+        from esc_exec.manifests import repository_manifest_path
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {
+            "platforms": {"ios": {"source_sets": ["iosMain", "nativeMain"], "ui_testing": {"framework": "xctest"}}},
+        }
+        write_yaml(repository_path, repository)
+        generate_indexes(self.root)
+        import json
+        data = json.loads((self.root / ".esc-ai/components/feature-home/esc-index.json").read_text(encoding="utf-8"))
+        self.assertEqual({"ios"}, set(data["testing"]["platforms"]))
+
+    def test_component_index_has_no_testing_key_when_not_declared(self):
+        generate_indexes(self.root)
+        import json
+        data = json.loads((self.root / ".esc-ai/components/feature-home/esc-index.json").read_text(encoding="utf-8"))
+        self.assertNotIn("testing", data)
+
+    def test_root_index_embeds_documentation_when_declared(self):
+        from esc_exec.manifests import repository_manifest_path
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["documentation"] = {"location": "wiki/", "convention": "One page per feature."}
+        write_yaml(repository_path, repository)
+        generate_indexes(self.root)
+        import json
+        root_index = json.loads((self.root / ".esc-ai/esc-index.json").read_text(encoding="utf-8"))
+        self.assertEqual({"location": "wiki/", "convention": "One page per feature."}, root_index["documentation"])
+
+    def test_root_index_has_no_documentation_key_when_not_declared(self):
+        generate_indexes(self.root)
+        import json
+        root_index = json.loads((self.root / ".esc-ai/esc-index.json").read_text(encoding="utf-8"))
+        self.assertNotIn("documentation", root_index)
+
 
 if __name__ == "__main__":
     unittest.main()

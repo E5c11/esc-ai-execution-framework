@@ -8,7 +8,8 @@ from typing import Any
 
 from esc_exec.json_io import load_json, write_json
 from esc_exec.manifests import (
-    ESC_AI_DIR, repository_manifest_path, repository_manifest_relative_path,
+    ESC_AI_DIR, component_testing_platforms, merged_testing, repository_manifest_path,
+    repository_manifest_relative_path,
 )
 from esc_exec.model import ManifestState, ValidationResult
 from esc_exec.yaml_io import load_yaml
@@ -97,7 +98,22 @@ def _source_paths(paths: dict[str, str]) -> list[str]:
     return sorted(value for key, value in paths.items() if key == "source" or key.startswith("source_"))
 
 
-def build_component_index(root: Path, repository_id: str, manifest_path: Path) -> dict[str, Any]:
+def build_component_index(
+    root: Path, repository_id: str, manifest_path: Path, repository_manifest: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    `repository_manifest` is optional (defaults to None, unchanged behavior for
+    any caller that doesn't have it in hand) -- when given, this component's
+    merged `testing` facts (repository defaults + this component's own
+    overrides, see `esc_exec.manifests.merged_testing`) are embedded in the
+    returned index, scoped to the platforms this component's own detected
+    source sets actually match. This is the real place an agent encounters
+    these facts: `_prompt` (every adapter) tells the agent to read exactly this
+    file for each declared component -- `build_instruction_bundle`'s levels are
+    never consumed by any adapter's actual prompt text, only recorded to
+    `instruction-bundle.json` for provenance. See
+    plan/done/manifest-testing-facts-and-documentation-obligation.md.
+    """
     manifest = load_yaml(manifest_path)
     component = manifest["component"]
     component_root = root / component["path"]
@@ -120,7 +136,7 @@ def build_component_index(root: Path, repository_id: str, manifest_path: Path) -
     relative_manifest = manifest_path.relative_to(root)
     structural_parts = [manifest_path.read_bytes()]
     structural_parts.extend(str(path).encode("utf-8") for path in files)
-    return {
+    index = {
         "schema_version": 1,
         "generated_by": "esc-exec",
         "input_digest": _digest(structural_parts),
@@ -150,6 +166,17 @@ def build_component_index(root: Path, repository_id: str, manifest_path: Path) -
             "role_counts": role_counts,
         },
     }
+    if repository_manifest is not None:
+        testing = merged_testing(repository_manifest, manifest)
+        matched_platforms = component_testing_platforms(testing, paths)
+        common = testing.get("common") or {}
+        platforms = {
+            name: declaration for name, declaration in (testing.get("platforms") or {}).items()
+            if name in matched_platforms
+        }
+        if common or platforms:
+            index["testing"] = {"common": common, "platforms": platforms}
+    return index
 
 
 def build_indexes(root: Path) -> tuple[dict[str, Any], list[tuple[Path, dict[str, Any]]]]:
@@ -162,7 +189,7 @@ def build_indexes(root: Path) -> tuple[dict[str, Any], list[tuple[Path, dict[str
     root_digest_parts = [repository_path.read_bytes()]
     for declared in repository_manifest["components"]:
         manifest_path = root / declared["manifest"]
-        component_index = build_component_index(root, repository_id, manifest_path)
+        component_index = build_component_index(root, repository_id, manifest_path, repository_manifest)
         index_path = manifest_path.parent / INDEX_FILE
         component_indexes.append((index_path, component_index))
         root_digest_parts.append(manifest_path.read_bytes())
@@ -191,6 +218,13 @@ def build_indexes(root: Path) -> tuple[dict[str, Any], list[tuple[Path, dict[str
         },
         "components": root_components,
     }
+    # `_prompt` (every adapter) tells the agent to read the repository index
+    # first, before any component index -- the natural place for a standing,
+    # repository-wide documentation-update obligation to actually be seen. See
+    # plan/done/manifest-testing-facts-and-documentation-obligation.md.
+    documentation = repository_manifest.get("documentation")
+    if documentation:
+        root_index["documentation"] = documentation
     return root_index, component_indexes
 
 

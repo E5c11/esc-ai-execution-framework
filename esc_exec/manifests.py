@@ -100,6 +100,173 @@ def _worktree_inherit_errors(data: dict[str, Any]) -> list[str]:
     return []
 
 
+# Optional testing/quality-tooling facts on a repository or component manifest --
+# see plan/done/manifest-testing-facts-and-documentation-obligation.md. `common`
+# facts already cover every platform once declared; `platforms` entries add or
+# override facts for a specific platform, matched against a component's own
+# detected source sets via that platform's own `source_sets` list (never assumed
+# to already be a normalized platform name -- real KMP repositories name their
+# per-platform source sets inconsistently, e.g. `iosMain` in most modules but
+# `nativeMain` for the same conceptual target in others).
+TESTING_FACTS: tuple[str, ...] = ("unit_framework", "mocking_framework", "coverage", "lint_tools", "ui_testing")
+
+
+def _testing_facts_errors(facts: dict[str, Any], prefix: str) -> list[str]:
+    errors: list[str] = []
+    for field in ("unit_framework", "mocking_framework"):
+        value = facts.get(field)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            errors.append(f"{prefix}.{field} must be a non-empty string")
+    lint_tools = facts.get("lint_tools")
+    if lint_tools is not None and (
+        not isinstance(lint_tools, list) or not all(isinstance(item, str) and item.strip() for item in lint_tools)
+    ):
+        errors.append(f"{prefix}.lint_tools must be a list of strings (may be empty)")
+    coverage = facts.get("coverage")
+    if coverage is not None and (
+        not isinstance(coverage, dict) or not isinstance(coverage.get("tool"), str) or not coverage["tool"].strip()
+    ):
+        errors.append(f"{prefix}.coverage must be a mapping with a non-empty tool string")
+    ui_testing = facts.get("ui_testing")
+    if ui_testing is not None and (
+        not isinstance(ui_testing, dict) or not isinstance(ui_testing.get("framework"), str)
+        or not ui_testing["framework"].strip()
+    ):
+        errors.append(f"{prefix}.ui_testing must be a mapping with a non-empty framework string")
+    return errors
+
+
+def _testing_errors(data: dict[str, Any]) -> list[str]:
+    """Shape-only validation for the optional `testing` block -- reused at both
+    repository and component scope, same as `_architecture_selector_errors`.
+    Absent entirely is valid; present-but-malformed is not."""
+    testing = data.get("testing")
+    if testing is None:
+        return []
+    if not isinstance(testing, dict) or set(testing) - {"common", "platforms"}:
+        return ["testing must be a mapping with only common/platforms keys"]
+    errors: list[str] = []
+    common = testing.get("common", {})
+    if not isinstance(common, dict):
+        errors.append("testing.common must be a mapping")
+    else:
+        errors.extend(_testing_facts_errors(common, "testing.common"))
+    platforms = testing.get("platforms", {})
+    if not isinstance(platforms, dict):
+        errors.append("testing.platforms must be a mapping")
+    else:
+        for name, declaration in platforms.items():
+            if not isinstance(declaration, dict):
+                errors.append(f"testing.platforms.{name} must be a mapping")
+                continue
+            source_sets = declaration.get("source_sets")
+            if not isinstance(source_sets, list) or not source_sets or not all(
+                isinstance(item, str) and item.strip() for item in source_sets
+            ):
+                errors.append(f"testing.platforms.{name}.source_sets must be a non-empty list of non-empty strings")
+            errors.extend(_testing_facts_errors(declaration, f"testing.platforms.{name}"))
+    return errors
+
+
+def _documentation_errors(data: dict[str, Any]) -> list[str]:
+    """
+    Optional repository-level documentation location/convention -- see
+    plan/done/manifest-testing-facts-and-documentation-obligation.md. Absent
+    entirely is valid (a component's own Tier-1-detected `paths.documentation`,
+    if any, still applies independently); present-but-malformed is not.
+    """
+    documentation = data.get("documentation")
+    if documentation is None:
+        return []
+    if not isinstance(documentation, dict) or not isinstance(documentation.get("location"), str) \
+            or not documentation["location"].strip():
+        return ["documentation must be a mapping with a non-empty location string"]
+    convention = documentation.get("convention")
+    if convention is not None and (not isinstance(convention, str) or not convention.strip()):
+        return ["documentation.convention must be a non-empty string if present"]
+    return []
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    result = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def merged_testing(repository_manifest: dict[str, Any], component_manifest: dict[str, Any]) -> dict[str, Any]:
+    """Component-level `testing` overrides/extends the repository-level default,
+    field by field and platform by platform -- same precedent as `architecture.
+    profile_ids`, merged via `_deep_merge` rather than a wholesale replace."""
+    return _deep_merge(repository_manifest.get("testing") or {}, component_manifest.get("testing") or {})
+
+
+def component_testing_platforms(testing: dict[str, Any], component_paths: dict[str, Any]) -> list[str]:
+    """
+    Derives which of `testing.platforms`' declared platforms this component
+    actually matches, from its own already-detected `source_*`/`tests_*` path
+    keys (see `component_structure`) -- never from a task's declared scope. A
+    component matches a platform if any of that platform's declared
+    `source_sets` appears among its own detected source-set names; a component
+    whose only non-common source sets are internal KMP groupings (e.g.
+    `roomMain`, `restMain`) matches no platform at all, correctly, since those
+    aren't deployable targets.
+    """
+    detected = {
+        key.split("_", 1)[1] for key in component_paths
+        if key.startswith("source_") or key.startswith("tests_")
+    }
+    if not detected:
+        return []
+    platforms = testing.get("platforms") or {}
+    matched = [
+        name for name, declaration in platforms.items()
+        if isinstance(declaration, dict) and detected.intersection(declaration.get("source_sets") or [])
+    ]
+    return sorted(matched)
+
+
+def resolve_testing_fact(testing: dict[str, Any], fact: str, platform: str | None = None) -> Any:
+    """
+    Resolves one testing fact for an optional platform context: `testing.
+    common.<fact>` first (the shared answer already covers every platform, so
+    it wins outright, not merely as a fallback default), else `testing.
+    platforms.<platform>.<fact>`, else `None` -- an explicit "nothing known"
+    signal, never silently treated as "no testing exists" (see
+    `component_testing_gaps` for how callers surface that).
+    """
+    common = testing.get("common") or {}
+    if fact in common:
+        return common[fact]
+    if platform:
+        declaration = (testing.get("platforms") or {}).get(platform) or {}
+        if fact in declaration:
+            return declaration[fact]
+    return None
+
+
+def component_testing_gaps(testing: dict[str, Any], component_paths: dict[str, Any]) -> list[str]:
+    """
+    INCOMPLETE-severity gaps (not shape errors): a fact this component's own
+    matched platforms declare no answer for at all -- see
+    plan/done/manifest-testing-facts-and-documentation-obligation.md's
+    Alerting design. Empty for a repository/component that hasn't declared any
+    `testing.platforms` at all -- this only checks internal consistency of a
+    partially-adopted schema, never "you haven't adopted this feature yet."
+    """
+    if not testing:
+        return []
+    gaps = []
+    for platform in component_testing_platforms(testing, component_paths):
+        for fact in TESTING_FACTS:
+            if resolve_testing_fact(testing, fact, platform) is None:
+                gaps.append(f"no {fact} known for platform {platform}")
+    return gaps
+
+
 def generate_gradle_manifests(
     root: Path, repository_id: str | None = None, components: list[tuple[str, Path]] | None = None,
 ) -> list[Path]:
@@ -253,6 +420,8 @@ def validate_repository(root: Path, registry_path: Path | None = None) -> list[V
         components = []
     repo_messages.extend(_architecture_selector_errors(repository))
     repo_messages.extend(_worktree_inherit_errors(repository))
+    repo_messages.extend(_testing_errors(repository))
+    repo_messages.extend(_documentation_errors(repository))
     results.append(ValidationResult(
         ManifestState.INVALID if repo_messages else ManifestState.VALID,
         str(repository_path),
@@ -284,7 +453,9 @@ def validate_repository(root: Path, registry_path: Path | None = None) -> list[V
             continue
         declared_paths.add(item["manifest"])
         manifest_path = root / item["manifest"]
-        results.append(validate_component(root, manifest_path, expected_id=item.get("id")))
+        results.append(validate_component(
+            root, manifest_path, expected_id=item.get("id"), repository_testing=repository.get("testing"),
+        ))
 
     try:
         _, detected, _ = detect_build_system(root)
@@ -312,7 +483,20 @@ def validate_repository(root: Path, registry_path: Path | None = None) -> list[V
     return results
 
 
-def validate_component(root: Path, path: Path, expected_id: Any = None) -> ValidationResult:
+def validate_component(
+    root: Path, path: Path, expected_id: Any = None, repository_testing: dict[str, Any] | None = None,
+) -> ValidationResult:
+    """
+    `repository_testing` (the repository manifest's own `testing` block, if
+    any) is optional and defaults to None for any existing standalone caller --
+    only `validate_repository` passes it, since only there is the repository
+    manifest already loaded. When given, this component's own detected
+    `source_*`/`tests_*` platforms are checked against the merged (repository +
+    component) `testing` declaration for facts neither level resolves -- an
+    `INCOMPLETE`-severity finding (a declaration gap), never `INVALID` and
+    never a hard pre-dispatch blocker. See
+    plan/done/manifest-testing-facts-and-documentation-obligation.md.
+    """
     if not path.exists():
         return ValidationResult(
             ManifestState.INCOMPLETE,
@@ -349,6 +533,10 @@ def validate_component(root: Path, path: Path, expected_id: Any = None) -> Valid
     if not isinstance(build, dict) or build.get("system") not in SUPPORTED_BUILD_SYSTEMS:
         invalid.append(f"build.system must be one of {sorted(SUPPORTED_BUILD_SYSTEMS)}")
     invalid.extend(_architecture_selector_errors(data))
+    invalid.extend(_testing_errors(data))
+    if repository_testing is not None:
+        testing = _deep_merge(repository_testing or {}, data.get("testing") or {})
+        incomplete.extend(component_testing_gaps(testing, data.get("paths") or {}))
     if invalid:
         return ValidationResult(ManifestState.INVALID, str(path), invalid + incomplete)
     if incomplete:

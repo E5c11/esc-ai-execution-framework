@@ -4,8 +4,9 @@ import json
 import unittest
 
 from esc_exec.manifests import (
-    component_manifest_path, generate_gradle_manifests, generate_npm_manifests,
-    repository_manifest_path, validate_component, validate_repository,
+    component_manifest_path, component_testing_platforms, component_testing_gaps,
+    generate_gradle_manifests, generate_npm_manifests, merged_testing,
+    repository_manifest_path, resolve_testing_fact, validate_component, validate_repository,
 )
 from esc_exec.model import ManifestState
 from esc_exec.registry import RENAMED_FRAMEWORK_IDS, add_route
@@ -207,6 +208,163 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(ManifestState.INVALID, results[0].state)
         self.assertTrue(any("worktree_inherit" in message for message in results[0].messages))
 
+    def test_testing_absent_is_valid(self):
+        generate_gradle_manifests(self.root)
+        results = validate_repository(self.root)
+        self.assertNotEqual(ManifestState.INVALID, results[0].state)
+
+    def test_testing_valid_common_block_is_accepted(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {
+            "common": {
+                "unit_framework": "kotlin-test", "mocking_framework": "mokkery",
+                "coverage": {"tool": "kover"}, "lint_tools": ["detekt"],
+            },
+        }
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertNotEqual(ManifestState.INVALID, results[0].state)
+
+    def test_testing_valid_platform_block_is_accepted(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {
+            "common": {"unit_framework": "kotlin-test"},
+            "platforms": {
+                "ios": {"source_sets": ["iosMain", "nativeMain"], "ui_testing": {"framework": "xctest"}},
+            },
+        }
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertNotEqual(ManifestState.INVALID, results[0].state)
+
+    def test_testing_unknown_top_level_key_is_invalid(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {"common": {}, "unexpected": {}}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertEqual(ManifestState.INVALID, results[0].state)
+        self.assertTrue(any("testing" in message for message in results[0].messages))
+
+    def test_testing_empty_lint_tools_is_valid(self):
+        """A real, current gap (e.g. ampm-backend has no lint tool configured)
+        must be declarable without being flagged as malformed."""
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {"common": {"lint_tools": []}}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertNotEqual(ManifestState.INVALID, results[0].state)
+
+    def test_testing_platform_missing_source_sets_is_invalid(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {"platforms": {"ios": {"ui_testing": {"framework": "xctest"}}}}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertEqual(ManifestState.INVALID, results[0].state)
+        self.assertTrue(any("source_sets" in message for message in results[0].messages))
+
+    def test_testing_ui_testing_without_framework_is_invalid(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {"platforms": {"ios": {"source_sets": ["iosMain"], "ui_testing": {"notes": "x"}}}}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertEqual(ManifestState.INVALID, results[0].state)
+        self.assertTrue(any("ui_testing" in message for message in results[0].messages))
+
+    def test_testing_coverage_without_tool_is_invalid(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {"common": {"coverage": {}}}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertEqual(ManifestState.INVALID, results[0].state)
+        self.assertTrue(any("coverage" in message for message in results[0].messages))
+
+    def test_documentation_absent_is_valid(self):
+        generate_gradle_manifests(self.root)
+        results = validate_repository(self.root)
+        self.assertNotEqual(ManifestState.INVALID, results[0].state)
+
+    def test_documentation_valid_is_accepted(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["documentation"] = {"location": "wiki/", "convention": "One page per feature."}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertNotEqual(ManifestState.INVALID, results[0].state)
+
+    def test_documentation_missing_location_is_invalid(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["documentation"] = {"convention": "One page per feature."}
+        write_yaml(repository_path, repository)
+        results = validate_repository(self.root)
+        self.assertEqual(ManifestState.INVALID, results[0].state)
+        self.assertTrue(any("documentation" in message for message in results[0].messages))
+
+    def test_component_level_testing_gap_is_incomplete_not_invalid(self):
+        """
+        A component structurally matching a declared platform (via source_sets)
+        that resolves no answer at all for some fact -- neither common nor that
+        platform -- is an INCOMPLETE-severity finding (a declaration gap), never
+        INVALID and never a hard pre-dispatch blocker. See
+        plan/done/manifest-testing-facts-and-documentation-obligation.md.
+        """
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        # This fixture's real components use a plain JVM layout (source/tests),
+        # which component_structure never detects as source_*/tests_* keys --
+        # so a synthetic source_iosMain key is added directly below to exercise
+        # the platform-matching path a real KMP component would hit naturally.
+        repository["testing"] = {"platforms": {"ios": {"source_sets": ["iosMain"]}}}
+        write_yaml(repository_path, repository)
+        component_manifest = component_manifest_path(self.root, "feature")
+        data = load_yaml(component_manifest)
+        data.setdefault("paths", {})["source_iosMain"] = "src/iosMain/kotlin"
+        write_yaml(component_manifest, data)
+        results = validate_repository(self.root)
+        component_result = next(result for result in results if str(component_manifest) in result.path)
+        self.assertEqual(ManifestState.INCOMPLETE, component_result.state)
+        self.assertTrue(any("no unit_framework known for platform ios" in message for message in component_result.messages))
+
+    def test_component_level_testing_gap_resolved_by_common_is_clean(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["testing"] = {
+            "common": {
+                "unit_framework": "kotlin-test", "mocking_framework": "mokkery",
+                "coverage": {"tool": "kover"}, "lint_tools": ["detekt"],
+            },
+            "platforms": {"ios": {"source_sets": ["iosMain"], "ui_testing": {"framework": "xctest"}}},
+        }
+        write_yaml(repository_path, repository)
+        component_manifest = component_manifest_path(self.root, "feature")
+        data = load_yaml(component_manifest)
+        data.setdefault("paths", {})["source_iosMain"] = "src/iosMain/kotlin"
+        write_yaml(component_manifest, data)
+        results = validate_repository(self.root)
+        component_result = next(result for result in results if str(component_manifest) in result.path)
+        # component.purpose is still Tier-1-incomplete in this fixture (a
+        # separate, unrelated INCOMPLETE reason) -- the point of this test is
+        # that no testing-fact gap message is added on top of it.
+        self.assertFalse(any("known for platform" in message for message in component_result.messages))
+
     def test_schema_documents_are_valid_yaml_mappings(self):
         schemas = Path(__file__).parents[1] / "schemas"
         for schema in schemas.glob("*.schema.yaml"):
@@ -272,6 +430,89 @@ class ValidateComponentBuildSystemTests(unittest.TestCase):
             result = validate_component(root, manifest_path, expected_id="x")
             self.assertEqual(ManifestState.INVALID, result.state)
             self.assertTrue(any("build.system" in message for message in result.messages))
+
+
+class TestingFactResolutionTests(unittest.TestCase):
+    """
+    Pure-function tests for the resolution algorithm underlying plan/done/
+    manifest-testing-facts-and-documentation-obligation.md, independent of any
+    real manifest fixture.
+    """
+
+    def test_merged_testing_component_overrides_repository(self):
+        repository = {"testing": {"common": {"unit_framework": "kotlin-test", "lint_tools": ["detekt"]}}}
+        component = {"testing": {"common": {"lint_tools": ["ktlint"]}}}
+        merged = merged_testing(repository, component)
+        self.assertEqual("kotlin-test", merged["common"]["unit_framework"])
+        self.assertEqual(["ktlint"], merged["common"]["lint_tools"])
+
+    def test_merged_testing_component_adds_a_platform_the_repository_lacks(self):
+        repository = {"testing": {"platforms": {"ios": {"source_sets": ["iosMain"]}}}}
+        component = {"testing": {"platforms": {"android": {"source_sets": ["androidMain"]}}}}
+        merged = merged_testing(repository, component)
+        self.assertEqual({"ios", "android"}, set(merged["platforms"]))
+
+    def test_merged_testing_with_neither_declared_is_empty(self):
+        self.assertEqual({}, merged_testing({}, {}))
+
+    def test_component_testing_platforms_matches_via_source_sets_despite_naming_drift(self):
+        """Real finding: most ampm-kmp components use `iosMain`, but
+        core-common/core-concurrency/core-session use `nativeMain` for the same
+        conceptual target -- source_sets absorbs this, the platform name itself
+        doesn't need to match the raw source-set name."""
+        testing = {"platforms": {"ios": {"source_sets": ["iosMain", "nativeMain"]}}}
+        self.assertEqual(["ios"], component_testing_platforms(testing, {"source_nativeMain": "src/nativeMain/kotlin"}))
+        self.assertEqual(["ios"], component_testing_platforms(testing, {"source_iosMain": "src/iosMain/kotlin"}))
+
+    def test_component_testing_platforms_ignores_non_platform_source_sets(self):
+        """Real finding: core-database's `roomMain`, core-firebase's `restMain`
+        are internal KMP groupings, not deployable targets -- they must not be
+        treated as a platform match just because a source_* key exists."""
+        testing = {"platforms": {"ios": {"source_sets": ["iosMain"]}}}
+        self.assertEqual([], component_testing_platforms(testing, {"source_roomMain": "src/roomMain/kotlin"}))
+
+    def test_component_testing_platforms_empty_when_no_platforms_declared(self):
+        self.assertEqual([], component_testing_platforms({}, {"source_androidMain": "src/androidMain/kotlin"}))
+
+    def test_resolve_testing_fact_prefers_common_over_platform(self):
+        testing = {
+            "common": {"unit_framework": "kotlin-test"},
+            "platforms": {"ios": {"unit_framework": "should-never-win"}},
+        }
+        self.assertEqual("kotlin-test", resolve_testing_fact(testing, "unit_framework", "ios"))
+
+    def test_resolve_testing_fact_falls_back_to_platform(self):
+        testing = {"platforms": {"ios": {"ui_testing": {"framework": "xctest"}}}}
+        self.assertEqual({"framework": "xctest"}, resolve_testing_fact(testing, "ui_testing", "ios"))
+
+    def test_resolve_testing_fact_returns_none_when_unresolved(self):
+        self.assertIsNone(resolve_testing_fact({}, "ui_testing", "ios"))
+        self.assertIsNone(resolve_testing_fact({"platforms": {"android": {"ui_testing": {}}}}, "ui_testing", "ios"))
+
+    def test_resolve_testing_fact_empty_lint_tools_resolves_not_gap(self):
+        """An explicitly declared empty list (a real, current gap like
+        ampm-backend's lint tooling) must resolve to `[]`, not be treated the
+        same as "nothing declared at all" (None)."""
+        self.assertEqual([], resolve_testing_fact({"common": {"lint_tools": []}}, "lint_tools"))
+
+    def test_component_testing_gaps_flags_unresolved_facts_per_platform(self):
+        testing = {"platforms": {"ios": {"source_sets": ["iosMain"]}}}
+        gaps = component_testing_gaps(testing, {"source_iosMain": "src/iosMain/kotlin"})
+        self.assertIn("no unit_framework known for platform ios", gaps)
+        self.assertIn("no ui_testing known for platform ios", gaps)
+
+    def test_component_testing_gaps_empty_when_common_resolves_everything(self):
+        testing = {
+            "common": {
+                "unit_framework": "kotlin-test", "mocking_framework": "mokkery",
+                "coverage": {"tool": "kover"}, "lint_tools": ["detekt"],
+            },
+            "platforms": {"ios": {"source_sets": ["iosMain"], "ui_testing": {"framework": "xctest"}}},
+        }
+        self.assertEqual([], component_testing_gaps(testing, {"source_iosMain": "src/iosMain/kotlin"}))
+
+    def test_component_testing_gaps_empty_when_testing_not_adopted_at_all(self):
+        self.assertEqual([], component_testing_gaps({}, {"source_iosMain": "src/iosMain/kotlin"}))
 
 
 if __name__ == "__main__":
