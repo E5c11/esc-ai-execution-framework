@@ -130,6 +130,31 @@ def active_provider(path: Path) -> dict[str, Any] | None:
     return {"id": active_id, **providers[active_id]}
 
 
+def set_default_policy(path: Path, profile_id: str) -> None:
+    """
+    Records which named policy profile a task starts from by default (see
+    plan/done/configure-system-policy-profiles.md) -- a single scalar field, not a
+    nested mapping like providers, since only one default is ever active at a
+    time. The universe of valid profile ids is owned by the orchestrator's own
+    named-profile set, not this module: validate_registry below only checks this
+    is a non-empty string, the same discipline already applied to
+    credentials.provider, which is also a pointer this module doesn't resolve.
+    """
+    if not profile_id or not profile_id.strip():
+        raise ValueError("profile_id must be a non-empty string")
+    data = read_registry(path)
+    data.setdefault("schema_version", 1)
+    data["default_policy"] = profile_id
+    write_yaml(path, data)
+
+
+def default_policy_id(path: Path) -> str | None:
+    """None means no default has been configured yet -- callers must not invent
+    one; see escape_ai_cli.py's resolve_default_policy fallback."""
+    value = read_registry(path).get("default_policy")
+    return value if isinstance(value, str) and value.strip() else None
+
+
 def resolve_route(path: Path, category: str, route_id: str) -> Path:
     data = read_registry(path)
     route = data.get(category, {}).get(route_id)
@@ -171,7 +196,7 @@ def validate_registry(path: Path) -> ValidationResult:
         messages.append("schema_version must be 1")
     known_top_level = {
         "schema_version", "repositories", "frameworks", "ecosystems",
-        "orchestrator", "ui", "credentials", "providers",
+        "orchestrator", "ui", "credentials", "providers", "default_policy",
     }
     unknown = sorted(set(data) - known_top_level)
     for key in unknown:
@@ -221,6 +246,9 @@ def validate_registry(path: Path) -> ValidationResult:
             not isinstance(credentials["provider"], str) or not credentials["provider"].strip()
         ):
             messages.append("credentials.provider must be a non-empty string naming the provider")
+    default_policy = data.get("default_policy")
+    if default_policy is not None and (not isinstance(default_policy, str) or not default_policy.strip()):
+        messages.append("default_policy must be a non-empty string naming a policy profile")
     providers = data.get("providers")
     if providers is not None:
         if not isinstance(providers, dict):

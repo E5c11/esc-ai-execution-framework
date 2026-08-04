@@ -6,8 +6,9 @@ from unittest.mock import patch
 
 from esc_exec.model import ManifestState
 from esc_exec.registry import (
-    RENAMED_FRAMEWORK_IDS, active_provider, add_ecosystem, add_route, default_registry_path,
-    migrate_legacy_registry, resolve_route, set_provider, validate_registry,
+    RENAMED_FRAMEWORK_IDS, active_provider, add_ecosystem, add_route, default_policy_id,
+    default_registry_path, migrate_legacy_registry, resolve_route, set_default_policy,
+    set_provider, validate_registry,
 )
 from esc_exec.yaml_io import load_yaml, write_yaml
 
@@ -221,6 +222,39 @@ class RegistryTests(unittest.TestCase):
             result = validate_registry(registry)
             self.assertEqual(ManifestState.INVALID, result.state)
             self.assertTrue(any("references unconfigured provider: claude" in message for message in result.messages))
+
+    def test_no_default_policy_configured_returns_none(self):
+        with TemporaryDirectory() as temp:
+            self.assertIsNone(default_policy_id(Path(temp) / "system.yaml"))
+
+    def test_set_default_policy_records_it(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            set_default_policy(registry, "readonly-review")
+            self.assertEqual("readonly-review", default_policy_id(registry))
+            self.assertEqual(ManifestState.VALID, validate_registry(registry).state)
+
+    def test_setting_default_policy_twice_overwrites_it(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            set_default_policy(registry, "readonly-review")
+            set_default_policy(registry, "standard-autonomous")
+            self.assertEqual("standard-autonomous", default_policy_id(registry))
+
+    def test_blank_default_policy_is_rejected(self):
+        with TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ValueError, "non-empty string"):
+                set_default_policy(Path(temp) / "system.yaml", "  ")
+
+    def test_non_string_default_policy_in_file_is_invalid(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            write_yaml(registry, {
+                "schema_version": 1, "repositories": {}, "frameworks": {}, "default_policy": 7,
+            })
+            result = validate_registry(registry)
+            self.assertEqual(ManifestState.INVALID, result.state)
+            self.assertTrue(any("default_policy must be a non-empty string" in message for message in result.messages))
 
 
 if __name__ == "__main__":
