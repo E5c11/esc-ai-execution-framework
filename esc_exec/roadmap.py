@@ -73,6 +73,32 @@ def load_project_roadmap(repository: Path) -> dict[str, Any] | None:
     return load_yaml(path) if path.is_file() else None
 
 
+def roadmap_prompt_line(repository: Path) -> str | None:
+    """
+    Render this repository's project_roadmap (if any) as one line for an adapter's
+    real execution prompt -- see plan/done/project-vision-and-direction.md design 2.
+    None when no roadmap has been saved yet, so a caller skips the line entirely
+    rather than emitting a hollow placeholder ("Project roadmap: None, None, None").
+    Shared by every adapter's _prompt() rather than duplicated three times, since
+    they'd otherwise all reimplement the same formatting slightly differently.
+    """
+    existing = load_project_roadmap(repository)
+    if not existing:
+        return None
+    roadmap = existing.get("project_roadmap", {})
+    parts = [
+        f"{label}: {roadmap[key]}"
+        for label, key in (("purpose", "purpose"), ("current stage", "current_stage"), ("direction", "direction"))
+        if roadmap.get(key)
+    ]
+    decisions = roadmap.get("durable_decisions") or []
+    if decisions:
+        parts.append(f"durable decisions: {'; '.join(decisions)}")
+    if not parts:
+        return None
+    return f"Project roadmap ({', '.join(parts)})."
+
+
 # ---------------------------------------------------------------------------
 # conversation_summary -- ephemeral, per-conversation. Regenerated wholesale by the
 # AI's own compaction judgment each time it's saved, so -- unlike checkpoint's

@@ -15,6 +15,7 @@ from esc_exec.instructions import build_instruction_bundle
 from esc_exec.json_io import write_json
 from esc_exec.model import ManifestState
 from esc_exec.registry import resolve_route
+from esc_exec.roadmap import roadmap_prompt_line
 from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
 from esc_exec.measurement import run_metrics
@@ -126,7 +127,7 @@ class OpenCodeAdapter:
             )
         write_json(run_dir / "instruction-bundle.json", {"schema_version": 1, "levels": instruction_bundle})
         try:
-            response = self.client.prompt(repository, session_id, self._prompt(context, tool_grant), tool_grant, adapter.get("configuration", {}).get("model"))
+            response = self.client.prompt(repository, session_id, self._prompt(context, tool_grant, repository), tool_grant, adapter.get("configuration", {}).get("model"))
             if response.get("info", {}).get("error"):
                 raise OpenCodeError(str(response["info"]["error"])[:500])
             summary, tools = self._summarize(response)
@@ -166,10 +167,13 @@ class OpenCodeAdapter:
         ))
 
     @staticmethod
-    def _prompt(context: dict[str, Any], tool_grant: dict[str, bool]) -> str:
+    def _prompt(context: dict[str, Any], tool_grant: dict[str, bool], repository: Path) -> str:
         components = context["routing"]["components"]
-        lines = [
-            f"Objective: {context['task']['objective']}",
+        lines = [f"Objective: {context['task']['objective']}"]
+        roadmap_line = roadmap_prompt_line(repository)
+        if roadmap_line:
+            lines.append(roadmap_line)
+        lines += [
             OpenCodeAdapter._tool_constraints(tool_grant),
             f"Declared components: {', '.join(component['id'] for component in components)}.",
             f"Read the repository index first: {context['routing']['repository_index']}.",

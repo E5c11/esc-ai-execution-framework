@@ -17,6 +17,7 @@ from esc_exec.manifests import repository_manifest_path
 from esc_exec.model import ManifestState
 from esc_exec.planning import WORK_TYPES
 from esc_exec.registry import resolve_route
+from esc_exec.roadmap import roadmap_prompt_line
 from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
 from esc_exec.measurement import run_metrics
@@ -312,7 +313,7 @@ class ClaudeCodeAdapter:
         claude_session_id = session_id
         try:
             messages = self.client.run(
-                execution_root, self._prompt(context, tool_grant), tool_grant,
+                execution_root, self._prompt(context, tool_grant, repository), tool_grant,
                 adapter.get("configuration", {}).get("model"), resume_session_id=session_id,
             )
             outcome = result_message(messages)
@@ -453,10 +454,13 @@ class ClaudeCodeAdapter:
             "You may access the network." if network else "Do not access the network.",
         ))
 
-    def _prompt(self, context: dict[str, Any], tool_grant: list[str]) -> str:
+    def _prompt(self, context: dict[str, Any], tool_grant: list[str], repository: Path) -> str:
         components = context["routing"]["components"]
-        lines = [
-            f"Objective: {context['task']['objective']}",
+        lines = [f"Objective: {context['task']['objective']}"]
+        roadmap_line = roadmap_prompt_line(repository)
+        if roadmap_line:
+            lines.append(roadmap_line)
+        lines += [
             self._tool_constraints(tool_grant),
             f"Available tools: {', '.join(tool_grant) if tool_grant else 'none'}.",
             f"Declared components: {', '.join(component['id'] for component in components)}.",

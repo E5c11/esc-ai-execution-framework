@@ -14,6 +14,7 @@ from esc_exec.instructions import build_instruction_bundle
 from esc_exec.json_io import write_json
 from esc_exec.model import ManifestState
 from esc_exec.registry import resolve_route
+from esc_exec.roadmap import roadmap_prompt_line
 from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
 from esc_exec.measurement import run_metrics
@@ -169,7 +170,7 @@ class CodexAdapter:
         write_json(run_dir / "instruction-bundle.json", {"schema_version": 1, "levels": instruction_bundle})
         try:
             messages = self.client.run(
-                repository, self._prompt(context, sandbox), sandbox, adapter.get("configuration", {}).get("model"),
+                repository, self._prompt(context, sandbox, repository), sandbox, adapter.get("configuration", {}).get("model"),
             )
             outcome = self._outcome(messages)
             if outcome["is_error"]:
@@ -270,10 +271,13 @@ class CodexAdapter:
             return "You may edit files and run shell commands within the workspace."
         return "You have full workspace and system access -- use it only as strictly necessary."
 
-    def _prompt(self, context: dict[str, Any], sandbox: str) -> str:
+    def _prompt(self, context: dict[str, Any], sandbox: str, repository: Path) -> str:
         components = context["routing"]["components"]
-        lines = [
-            f"Objective: {context['task']['objective']}",
+        lines = [f"Objective: {context['task']['objective']}"]
+        roadmap_line = roadmap_prompt_line(repository)
+        if roadmap_line:
+            lines.append(roadmap_line)
+        lines += [
             self._sandbox_constraints(sandbox),
             f"Declared components: {', '.join(component['id'] for component in components)}.",
             f"Read the repository index first: {context['routing']['repository_index']}.",

@@ -4,7 +4,7 @@ import unittest
 
 from esc_exec.roadmap import (
     conversation_summary_path, load_conversation_summary, load_project_roadmap,
-    project_roadmap_path, save_conversation_summary, save_project_roadmap,
+    project_roadmap_path, roadmap_prompt_line, save_conversation_summary, save_project_roadmap,
 )
 
 
@@ -52,6 +52,45 @@ class ProjectRoadmapTests(unittest.TestCase):
         with TemporaryDirectory() as temp:
             root = Path(temp)
             self.assertEqual(root / ".esc-ai" / "roadmap.yaml", project_roadmap_path(root))
+
+
+class RoadmapPromptLineTests(unittest.TestCase):
+    """plan/done/project-vision-and-direction.md design 2: the substantive fix --
+    a repository's roadmap actually reaching an adapter's real execution prompt,
+    not just the next planning conversation's."""
+
+    def test_no_roadmap_yet_returns_none(self):
+        with TemporaryDirectory() as temp:
+            self.assertIsNone(roadmap_prompt_line(Path(temp)))
+
+    def test_renders_every_populated_field(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            save_project_roadmap(
+                root, "repo", "A demo app.", "Scaffolding initial structure.", "Add auth next.",
+                durable_decisions=["Use Kotlin Multiplatform."],
+            )
+            line = roadmap_prompt_line(root)
+            self.assertIn("purpose: A demo app.", line)
+            self.assertIn("current stage: Scaffolding initial structure.", line)
+            self.assertIn("direction: Add auth next.", line)
+            self.assertIn("durable decisions: Use Kotlin Multiplatform.", line)
+
+    def test_omits_empty_fields_rather_than_rendering_them_blank(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            save_project_roadmap(root, "repo", "", "", "Add auth next.")
+            line = roadmap_prompt_line(root)
+            self.assertIn("direction: Add auth next.", line)
+            self.assertNotIn("purpose:", line)
+            self.assertNotIn("current stage:", line)
+            self.assertNotIn("durable decisions:", line)
+
+    def test_all_fields_empty_returns_none(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            save_project_roadmap(root, "repo", "", "", "")
+            self.assertIsNone(roadmap_prompt_line(root))
 
 
 class ConversationSummaryTests(unittest.TestCase):

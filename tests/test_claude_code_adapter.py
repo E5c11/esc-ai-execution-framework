@@ -17,6 +17,7 @@ from esc_exec.indexing import generate_indexes
 from esc_exec.manifests import (
     component_manifest_path, component_manifest_relative_path, repository_manifest_path,
 )
+from esc_exec.roadmap import save_project_roadmap
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
@@ -291,6 +292,49 @@ class ClaudeCodeAdapterTests(unittest.TestCase):
             self.assertIn("safety_and_operator_policy", levels)
             run = json.loads((run_dir / "run.json").read_text())
             self.assertEqual("instruction-bundle.json", run["bindings"]["instruction_bundle"])
+
+    def test_project_roadmap_reaches_the_real_prompt_and_the_bundle(self):
+        """plan/done/project-vision-and-direction.md design 2: a saved
+        project_roadmap must reach the actual text sent to the agent, not just an
+        unread instruction-bundle.json entry."""
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._repository(root)
+            add_route(registry, "repositories", "ampm-backend", repository)
+            save_project_roadmap(
+                repository, "ampm-backend", "A lesson-publishing app.",
+                "Core publishing flow built.", "Adding a review workflow next.",
+            )
+            client = FakeClaudeCodeClient()
+            run_dir = ClaudeCodeAdapter(client, registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml", examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            self.assertIn("A lesson-publishing app.", client.prompts[0])
+            self.assertIn("Adding a review workflow next.", client.prompts[0])
+            bundle = json.loads((run_dir / "instruction-bundle.json").read_text())
+            workflow_level = next(entry for entry in bundle["levels"] if entry["level"] == "repository_instructions_and_workflow_policy")
+            self.assertIn(".esc-ai/roadmap.yaml", workflow_level["sources"])
+
+    def test_no_project_roadmap_omits_it_from_prompt_and_bundle(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._repository(root)
+            add_route(registry, "repositories", "ampm-backend", repository)
+            client = FakeClaudeCodeClient()
+            run_dir = ClaudeCodeAdapter(client, registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml", examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            self.assertNotIn("Project roadmap", client.prompts[0])
+            bundle = json.loads((run_dir / "instruction-bundle.json").read_text())
+            levels = {entry["level"]: entry["sources"] for entry in bundle["levels"]}
+            sources = levels.get("repository_instructions_and_workflow_policy", [])
+            self.assertFalse(any("roadmap" in source for source in sources))
 
 
 class PermissionDenialsArtifactTests(unittest.TestCase):

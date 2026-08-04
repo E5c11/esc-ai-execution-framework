@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from esc_exec.manifests import repository_manifest_path
+from esc_exec.roadmap import project_roadmap_path
 from esc_exec.workflow_bootstrap import WORKFLOW_README_PATH, parse_workflow_policy_frontmatter
 from esc_exec.yaml_io import load_yaml
 
@@ -106,6 +107,12 @@ def build_instruction_bundle(
         extension = frontmatter.get("policy", {}).get("extension")
         if isinstance(extension, dict) and extension.get("id"):
             workflow_sources.append(f"extension:{extension['id']}")
+    roadmap_path = project_roadmap_path(repository)
+    if roadmap_path.is_file():
+        # Provenance only, matching every other source in this bucket -- see
+        # plan/done/project-vision-and-direction.md design 2 for the actual
+        # functional fix (each adapter's real prompt), which this is not.
+        workflow_sources.append(str(roadmap_path.relative_to(repository)))
     bundle["repository_instructions_and_workflow_policy"] = workflow_sources
 
     bundle["component_manifests_and_profiles"] = [

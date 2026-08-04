@@ -11,6 +11,7 @@ from esc_exec.indexing import generate_indexes
 from esc_exec.manifests import (
     component_manifest_path, component_manifest_relative_path, repository_manifest_path,
 )
+from esc_exec.roadmap import save_project_roadmap
 from esc_exec.yaml_io import write_yaml
 
 
@@ -81,6 +82,25 @@ class OpenCodeAdapterTests(unittest.TestCase):
             metrics = json.loads((run_dir / "run-metrics.json").read_text())
             self.assertEqual(155, metrics["tokens"]["total"])
             self.assertEqual(1, metrics["execution"]["tool_calls"])
+
+    def test_project_roadmap_reaches_the_real_prompt(self):
+        """plan/done/project-vision-and-direction.md design 2: parity with the
+        Claude Code adapter -- every provider must see a saved roadmap, not just
+        the first one this was built against."""
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._repository(root)
+            add_route(registry, "repositories", "ampm-backend", repository)
+            save_project_roadmap(repository, "ampm-backend", "A lesson-publishing app.", "Core flow built.", "Adding review next.")
+            client = FakeOpenCodeClient()
+            OpenCodeAdapter(client, registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml", examples / "adapter.yaml", examples / "policy.yaml",
+            )
+            self.assertIn("A lesson-publishing app.", client.prompts[0])
+            self.assertIn("Adding review next.", client.prompts[0])
 
     def test_fork_returns_provider_session_id(self):
         with TemporaryDirectory() as temp:
