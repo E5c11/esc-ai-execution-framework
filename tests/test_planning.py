@@ -59,6 +59,26 @@ class PlanningTests(unittest.TestCase):
         )
         self.assertEqual("repo", questions[0]["repository"])
 
+    def test_planning_questions_add_depends_on_only_for_multi_repository_drafts(self):
+        second_root = self.root / "repo-b-root"
+        self._make_repository(second_root, "repo-b", "content", "Owns repo-b content.", ["export"])
+        questions = planning_questions({
+            "repo": route_objective(self.root, "export"),
+            "repo-b": route_objective(second_root, "export"),
+        })
+        fields = [question["field"] for question in questions]
+        self.assertEqual(
+            ["components", "depends_on", "components", "depends_on",
+             "scope_boundary", "completion_conditions", "rollout_needs"],
+            fields,
+        )
+        depends_on_questions = [question for question in questions if question["field"] == "depends_on"]
+        self.assertEqual("repo", depends_on_questions[0]["repository"])
+        self.assertEqual("", depends_on_questions[0]["suggested"])
+        self.assertEqual("repo-b", depends_on_questions[1]["repository"])
+        self.assertEqual("repo", depends_on_questions[1]["suggested"])
+        self.assertIn("suggested: repo", depends_on_questions[1]["prompt"])
+
     def test_generates_valid_task_and_readme(self):
         written = generate_single_repository_workflow(
             self.root, "repo", "task-export", "Add CSV export.", "feature",

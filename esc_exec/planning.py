@@ -29,14 +29,38 @@ def planning_questions(repository_matches: dict[str, list[Match]]) -> list[dict[
     needs. This is deliberately not a live conversation (see the tracking doc for
     why): a bounded, typed question set is what onboarding already does successfully
     for the same class of "can't be derived" problem.
+
+    For a multi-repository draft (repository_matches has more than one entry), also
+    asks per-repository dependency ordering (see
+    plan/active/multi-repository-dependency-graph-planning.md) instead of assuming
+    every plan is a straight chain in declared order -- the underlying write path
+    (generate_multi_repository_workflow) already accepts an arbitrary acyclic
+    depends_on graph, this is what actually lets a caller supply one. Skipped
+    entirely for a single-repository draft, where no cross-task dependency exists.
+    Each question carries the same repository-immediately-before-it-in-order
+    suggestion a caller ignoring this field entirely would fall back to (empty for
+    the first repository, which has no predecessor), exposed as a "suggested" key
+    so a renderer/CLI doesn't need to recompute it.
     """
     questions: list[dict[str, Any]] = []
-    for repository_id, matches in repository_matches.items():
+    repository_ids = list(repository_matches.keys())
+    multi_repository = len(repository_ids) > 1
+    for index, (repository_id, matches) in enumerate(repository_matches.items()):
         suggested = ", ".join(match.component_id for match in matches) or "none matched"
         questions.append({
             "field": "components", "repository": repository_id,
             "prompt": f"Which components in `{repository_id}` does this touch? (comma-separated ids; suggested: {suggested})",
         })
+        if multi_repository:
+            suggested_dependency = repository_ids[index - 1] if index > 0 else ""
+            suggestion_note = f"; suggested: {suggested_dependency}" if suggested_dependency else ""
+            questions.append({
+                "field": "depends_on", "repository": repository_id, "suggested": suggested_dependency,
+                "prompt": (
+                    f"Which other repositories in this initiative must complete before `{repository_id}`? "
+                    f"(comma-separated repository ids, or blank for none{suggestion_note})"
+                ),
+            })
     questions.append({
         "field": "scope_boundary",
         "prompt": "What is explicitly out of scope for this initiative?",
