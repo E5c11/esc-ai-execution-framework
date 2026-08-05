@@ -15,6 +15,7 @@ from esc_exec.instructions import build_instruction_bundle
 from esc_exec.json_io import write_json
 from esc_exec.model import ManifestState
 from esc_exec.registry import resolve_route
+from esc_exec.architecture_lookup import architecture_prompt_lines
 from esc_exec.roadmap import roadmap_prompt_line
 from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
@@ -180,6 +181,7 @@ class OpenCodeAdapter:
         ]
         for component in components:
             lines.append(f"Then read {component['index']} for component {component['id']}; search only: {', '.join(component['search_roots'])}.")
+            lines += architecture_prompt_lines(component)
         if context["scope"]["paths"]:
             lines.append(f"Task paths: {', '.join(context['scope']['paths'])}.")
         return "\n".join(lines + ["Return a concise evidence-based result."])

@@ -84,6 +84,35 @@ def stub_documents(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [document for document in documents if document.get("status") == "stub"]
 
 
+def architecture_prompt_lines(component: dict[str, Any]) -> list[str]:
+    """
+    Render read-instructions for a component's resolved architecture-framework
+    documents (task_context.py's `entry["architecture"]["documents"]`) -- one line
+    per document, pointing the agent at the live file to read, mirroring the
+    existing `f"Then read {component['index']}..."` pattern rather than inlining
+    content that could go stale. Stub documents (`stubs`, populated by
+    stub_documents) are called out distinctly so the agent doesn't treat
+    unreviewed guidance as a settled rule. Returns [] when the component has no
+    `architecture` key at all (no declared profile_ids) -- purely additive.
+    """
+    architecture = component.get("architecture")
+    if not architecture:
+        return []
+    stub_ids = set(architecture.get("stubs", []))
+    lines = []
+    for document in architecture.get("documents", []):
+        doc_id = document["id"]
+        suffix = (
+            " -- still a stub, unreviewed: treat as a starting point, not a settled rule."
+            if doc_id in stub_ids else "."
+        )
+        lines.append(
+            f"Also read {document['path']} ({doc_id}) for component {component['id']}'s "
+            f"architecture guidance{suffix}"
+        )
+    return lines
+
+
 def load_profile_doc_map(framework_root: Path) -> dict[str, Any]:
     """
     Read the architecture framework's generated profile-doc-map.json: a data-only

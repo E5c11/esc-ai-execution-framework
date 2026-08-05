@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from esc_exec.architecture_lookup import (
+    architecture_prompt_lines,
     load_architecture_index,
     load_profile_doc_map,
     resolve_architecture_docs,
@@ -164,6 +165,44 @@ class ArchitectureLookupTests(unittest.TestCase):
         with TemporaryDirectory() as temp:
             with self.assertRaises(FileNotFoundError):
                 load_profile_doc_map(Path(temp))
+
+    def test_architecture_prompt_lines_absent_architecture_is_empty(self):
+        self.assertEqual([], architecture_prompt_lines({"id": "content"}))
+
+    def test_architecture_prompt_lines_points_at_each_resolved_document(self):
+        component = {
+            "id": "content",
+            "architecture": {
+                "profile_ids": ["ORCH-BE-FEAT"],
+                "documents": [
+                    {"id": "CORE-DI", "path": "core/dependency-inversion.md", "layer": "core"},
+                    {"id": "ORCH-BE-FEAT", "path": "feature-orchestrators/backend/feature.md", "layer": "feature-orchestrators"},
+                ],
+            },
+        }
+        lines = architecture_prompt_lines(component)
+        self.assertEqual(2, len(lines))
+        self.assertIn("core/dependency-inversion.md", lines[0])
+        self.assertIn("CORE-DI", lines[0])
+        self.assertIn("content", lines[0])
+        self.assertNotIn("stub", lines[0])
+        self.assertIn("feature-orchestrators/backend/feature.md", lines[1])
+
+    def test_architecture_prompt_lines_marks_stub_documents_distinctly(self):
+        component = {
+            "id": "content",
+            "architecture": {
+                "profile_ids": ["ORCH-BE-FEAT"],
+                "documents": [
+                    {"id": "ORCH-BE-FEAT", "path": "feature-orchestrators/backend/feature.md", "layer": "feature-orchestrators"},
+                ],
+                "stubs": ["ORCH-BE-FEAT"],
+            },
+        }
+        lines = architecture_prompt_lines(component)
+        self.assertEqual(1, len(lines))
+        self.assertIn("stub", lines[0])
+        self.assertIn("unreviewed", lines[0])
 
 
 if __name__ == "__main__":

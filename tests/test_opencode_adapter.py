@@ -102,6 +102,41 @@ class OpenCodeAdapterTests(unittest.TestCase):
             self.assertIn("A lesson-publishing app.", client.prompts[0])
             self.assertIn("Adding review next.", client.prompts[0])
 
+    def test_architecture_documents_reach_the_real_prompt(self):
+        """plan/active/architecture-guidance-prompt-delivery.md design 5: parity
+        across every adapter, not just the one this was first built against."""
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = self._repository(root)
+            write_yaml(component_manifest_path(repository, "content"), {
+                "schema_version": 1,
+                "component": {"id": "content", "type": "gradle-module", "path": "content", "purpose": "Owns lesson publishing."},
+                "build": {"system": "gradle", "project": ":content"},
+                "paths": {"source": "src/main/kotlin"},
+                "architecture": {"profile_ids": ["ORCH-BE-FEAT"]},
+            })
+            generate_indexes(repository)
+            add_route(registry, "repositories", "ampm-backend", repository)
+            framework_root = root / "architecture-framework"
+            framework_root.mkdir()
+            (framework_root / "index.json").write_text(json.dumps({
+                "generated": "2026-01-01T00:00:00Z", "count": 1,
+                "documents": [{
+                    "id": "ORCH-BE-FEAT", "path": "feature-orchestrators/backend/feature.md",
+                    "layer": "feature-orchestrators", "requires": [], "status": "active",
+                }],
+            }), encoding="utf-8")
+            add_route(registry, "frameworks", "esc-ai-architecture-framework", framework_root)
+            client = FakeOpenCodeClient()
+            OpenCodeAdapter(client, registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml", examples / "adapter.yaml", examples / "policy.yaml",
+            )
+            self.assertIn("feature-orchestrators/backend/feature.md", client.prompts[0])
+            self.assertIn("ORCH-BE-FEAT", client.prompts[0])
+
     def test_fork_returns_provider_session_id(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)

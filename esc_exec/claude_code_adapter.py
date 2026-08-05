@@ -17,6 +17,7 @@ from esc_exec.manifests import repository_manifest_path
 from esc_exec.model import ManifestState
 from esc_exec.planning import WORK_TYPES
 from esc_exec.registry import resolve_route
+from esc_exec.architecture_lookup import architecture_prompt_lines
 from esc_exec.roadmap import roadmap_prompt_line
 from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
@@ -187,7 +188,7 @@ class ClaudeCodeClient:
     independent layer underneath the tool allowlist, not a substitute for it.
     """
 
-    def __init__(self, binary: str = "claude", timeout: float = 1800.0):
+    def __init__(self, binary: str = "claude", timeout: float = 3600.0):
         self.binary, self.timeout = binary, timeout
 
     def _invoke(
@@ -468,6 +469,7 @@ class ClaudeCodeAdapter:
         ]
         for component in components:
             lines.append(f"Then read {component['index']} for component {component['id']}; search only: {', '.join(component['search_roots'])}.")
+            lines += architecture_prompt_lines(component)
         if context["scope"]["paths"]:
             lines.append(f"Task paths: {', '.join(context['scope']['paths'])}.")
         return "\n".join(lines + ["Return a concise evidence-based result."])
