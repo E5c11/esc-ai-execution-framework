@@ -71,9 +71,10 @@ class TaskContextTests(unittest.TestCase):
         generate_indexes(self.root)
         generate_dependency_graph(self.root)
         registry = self._register_architecture_framework([
-            {"id": "CORE-DI", "path": "core/dependency-inversion.md", "layer": "core", "requires": []},
+            {"id": "CORE-DI", "path": "core/dependency-inversion.md", "layer": "core", "requires": [],
+             "status": "active"},
             {"id": "ORCH-BE-FEAT", "path": "feature-orchestrators/backend/feature.md",
-             "layer": "feature-orchestrators", "requires": ["CORE-DI"]},
+             "layer": "feature-orchestrators", "requires": ["CORE-DI"], "status": "active"},
         ])
         output = self.root / "task-context.json"
         context = build_task_context(self.root, self.task, output, registry_path=registry)

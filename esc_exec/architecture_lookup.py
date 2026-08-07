@@ -78,10 +78,20 @@ def resolve_architecture_docs(
 
 def stub_documents(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Return the subset of resolved documents whose status is 'stub'. The Gap Protocol
-    applies to these; callers must not treat them as fully specified.
+    Return the subset of resolved documents not yet promoted 'active'. Whitelist,
+    not blacklist: `status` must equal exactly 'active' to be considered reviewed
+    and complete. Anything else -- 'stub', unset/empty (the framework index's
+    default for documents scaffolded by Tier-1 auto-suggestion but never reviewed
+    by a maintainer), or any other in-progress value -- is treated the same way a
+    literal 'stub' always was. Getting this wrong as a blacklist (matching only
+    the literal string 'stub') silently waves through every never-reviewed
+    empty-status document as if it were active -- confirmed to have happened in
+    practice (esc-ai-architecture-framework's index: 87/91 documents at status
+    '', only 1 ever 'active', and the hard-stop never once fired across a full
+    session of ampm-kmp dispatches). The Gap Protocol applies to everything this
+    returns; callers must not treat any of it as fully specified.
     """
-    return [document for document in documents if document.get("status") == "stub"]
+    return [document for document in documents if document.get("status") != "active"]
 
 
 def architecture_prompt_lines(component: dict[str, Any]) -> list[str]:

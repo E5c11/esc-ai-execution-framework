@@ -13,7 +13,7 @@ from esc_exec.architecture_lookup import (
 )
 
 
-def _doc(doc_id: str, layer: str, requires: list[str] | None = None, status: str = "") -> dict:
+def _doc(doc_id: str, layer: str, requires: list[str] | None = None, status: str = "active") -> dict:
     return {
         "id": doc_id,
         "type": "principle",
@@ -79,6 +79,35 @@ class ArchitectureLookupTests(unittest.TestCase):
         documents, _ = resolve_architecture_docs(["ARCH-STUB"], index)
         stubs = stub_documents(documents)
         self.assertEqual(["ARCH-STUB"], [document["id"] for document in stubs])
+
+    def test_documents_with_empty_status_are_treated_as_not_yet_reviewed(self):
+        # Regression test: stub_documents() must be a whitelist (only 'active'
+        # passes), not a blacklist (only 'stub' blocks). A document that was
+        # scaffolded by Tier-1 auto-suggestion but never promoted by a maintainer
+        # has status == '' -- not literally 'stub', but just as unreviewed, and
+        # must be treated identically. Getting this wrong let every architecture-
+        # coverage hard-stop in a real session silently pass on 87 never-reviewed
+        # documents (esc-ai-architecture-framework's index at the time: 87/91 at
+        # status '', only 1 ever 'active').
+        index = {"CORE-UNREVIEWED": _doc("CORE-UNREVIEWED", "core", status="")}
+        documents, _ = resolve_architecture_docs(["CORE-UNREVIEWED"], index)
+        stubs = stub_documents(documents)
+        self.assertEqual(["CORE-UNREVIEWED"], [document["id"] for document in stubs])
+
+    def test_documents_with_any_non_active_status_are_treated_as_not_yet_reviewed(self):
+        # Same whitelist point, generalized: 'draft', 'wip', or any other
+        # in-progress value a maintainer might type must block exactly like
+        # 'stub' -- only the literal 'active' is ever considered reviewed.
+        index = {"CORE-DRAFT": _doc("CORE-DRAFT", "core", status="draft")}
+        documents, _ = resolve_architecture_docs(["CORE-DRAFT"], index)
+        stubs = stub_documents(documents)
+        self.assertEqual(["CORE-DRAFT"], [document["id"] for document in stubs])
+
+    def test_active_documents_are_not_flagged(self):
+        index = {"CORE-DI": _doc("CORE-DI", "core", status="active")}
+        documents, _ = resolve_architecture_docs(["CORE-DI"], index)
+        stubs = stub_documents(documents)
+        self.assertEqual([], stubs)
 
     def test_load_architecture_index_reads_a_real_file(self):
         with TemporaryDirectory() as temp:
