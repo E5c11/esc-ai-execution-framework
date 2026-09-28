@@ -112,3 +112,8 @@ The initial runtime implementation is documented in
 Generated indexes are canonical, pretty-printed JSON files named `esc-index.json`.
 There is deliberately no committed Markdown representation; human views are rendered
 on demand by the CLI or future user interfaces.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](./LICENSE). Maintained by Emmanuel
+Conradie / Black Arrows Consulting.
