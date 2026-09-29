@@ -119,7 +119,10 @@ VERIFY = Stage(
 )
 GROUNDING_CHECK = Stage(
     name="grounding_check", kind="gate", interaction="fixed",
-    maps_to="new -- cross-checks generated documentation claims against the repository index/manifests before report",
+    maps_to=(
+        "esc_exec.grounding (non_documentation_changes, grounding_blockers): only documentation may change, and every "
+        "file the changed documentation points at must exist; proves references resolve, not that the prose is accurate"
+    ),
 )
 REPORT = Stage(
     name="report", kind="action", interaction="variable",

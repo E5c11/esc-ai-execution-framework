@@ -41,6 +41,7 @@ source_modules =
     esc_exec.dependencies
     esc_exec.framework_descriptor
     esc_exec.gradle
+    esc_exec.grounding
     esc_exec.indexing
     esc_exec.instructions
     esc_exec.json_io
@@ -86,6 +87,7 @@ source_modules =
     esc_exec.dependencies
     esc_exec.framework_descriptor
     esc_exec.gradle
+    esc_exec.grounding
     esc_exec.indexing
     esc_exec.instructions
     esc_exec.json_io

@@ -69,3 +69,16 @@ def state_violations(before: dict[str, Any] | None, after: dict[str, Any] | None
         elif before_files[path] != after_files[path]:
             violations.append(f"{path}: modified again")
     return violations
+
+
+def changed_paths(before: dict[str, Any] | None, after: dict[str, Any] | None) -> list[str]:
+    """Paths that are new or differ between two `esc_exec.worktree.repository_state` snapshots (escape-ai's own
+    bookkeeping excluded). Used for a run that edited the live checkout, where there is no worktree branch to diff;
+    work that was already uncommitted before the run is not counted. Empty when either snapshot is missing."""
+    if before is None or after is None:
+        return []
+    before_files, after_files = before["files"], after["files"]
+    return sorted(
+        path for path in set(before_files) | set(after_files)
+        if relevant(path) and before_files.get(path) != after_files.get(path)
+    )

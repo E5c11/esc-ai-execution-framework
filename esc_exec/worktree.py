@@ -250,3 +250,16 @@ def verification_root(repository: Path, task_id: str, run_dir: Path) -> Path:
         if path.is_dir():
             return path
     return repository
+
+
+def worktree_changed_paths(repository: Path, task_id: str) -> list[str]:
+    """Paths the task's worktree branch changed relative to where it branched from HEAD (empty when there is no
+    such branch). Deleted paths are included; the caller decides what to do with a path that no longer exists."""
+    branch = worktree_branch(task_id)
+    if not _branch_exists(repository, branch):
+        return []
+    result = subprocess.run(
+        ["git", "-C", str(repository), "diff", "--name-only", "-z", f"HEAD...{branch}"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    return [path for path in result.stdout.split("\0") if path] if result.returncode == 0 else []
