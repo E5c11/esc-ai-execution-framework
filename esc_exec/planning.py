@@ -8,6 +8,7 @@ from esc_exec.indexing import INDEX_FILE, Match, match_components
 from esc_exec.json_io import load_json
 from esc_exec.manifests import ESC_AI_DIR
 from esc_exec.registry import resolve_route
+from esc_exec.root_cause import validate_root_cause
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
@@ -20,7 +21,7 @@ def route_objective(repository: Path, objective: str, max_matches: int = 5) -> l
     return match_components(repository, objective)[:max_matches]
 
 
-def planning_questions(repository_matches: dict[str, list[Match]]) -> list[dict[str, Any]]:
+def planning_questions(repository_matches: dict[str, list[Match]], work_type: str | None = None) -> list[dict[str, Any]]:
     """
     Typed questions for what genuinely cannot be derived from routing alone: which
     of the suggested (or other) components this initiative actually touches per
@@ -41,8 +42,25 @@ def planning_questions(repository_matches: dict[str, list[Match]]) -> list[dict[
     suggestion a caller ignoring this field entirely would fall back to (empty for
     the first repository, which has no predecessor), exposed as a "suggested" key
     so a renderer/CLI doesn't need to recompute it.
+
+    For a `fix` (`work_type == "fix"`), the procedure's root_cause stage comes first: the cause and the
+    evidence for it are asked before scope or completion conditions, because everything after them is
+    planned against the cause (see esc_exec.root_cause and esc_exec.procedures).
     """
     questions: list[dict[str, Any]] = []
+    if work_type == "fix":
+        questions.append({
+            "field": "root_cause_statement",
+            "prompt": "Root cause: what is actually wrong (the underlying cause, not the symptom)?",
+        })
+        questions.append({
+            "field": "root_cause_evidence",
+            "prompt": "Evidence: how was this established? (a reproduction, log line, file:line, failing test; separate items with ';')",
+        })
+        questions.append({
+            "field": "root_cause_reproduction",
+            "prompt": "Reproduction command or steps (optional, blank if none)",
+        })
     repository_ids = list(repository_matches.keys())
     multi_repository = len(repository_ids) > 1
     for index, (repository_id, matches) in enumerate(repository_matches.items()):
@@ -104,7 +122,7 @@ def _render_task_readme(
     task_id: str, objective: str, work_type: str, components: list[str],
     scope_boundary: str, completion_conditions: list[str], rollout_needs: str,
     architecture_doc_ids: list[str], initiative: dict[str, Any] | None,
-    local_architecture_notes: list[str] | None = None,
+    local_architecture_notes: list[str] | None = None, root_cause: dict[str, Any] | None = None,
 ) -> str:
     lines = [f"# {task_id}", "", f"**Work type:** {work_type}", "", "## Objective", "", objective, ""]
     if initiative:
@@ -115,6 +133,10 @@ def _render_task_readme(
         if initiative.get("depends_on"):
             lines += ["Depends on: " + ", ".join(initiative["depends_on"])]
         lines += [""]
+    if root_cause:
+        lines += ["## Root cause", "", root_cause["statement"], "", "Evidence:", *(f"- {item}" for item in root_cause["evidence"]), ""]
+        if root_cause.get("reproduction"):
+            lines += ["Reproduction:", "", f"    {root_cause['reproduction']}", ""]
     lines += ["## Components", "", *(f"- `{component_id}`" for component_id in components), ""]
     if architecture_doc_ids:
         lines += ["## Referenced architecture documents", "", *(f"- `{doc_id}`" for doc_id in architecture_doc_ids), ""]
@@ -146,6 +168,7 @@ def generate_single_repository_workflow(
     rollout_needs: str = "",
     initiative: dict[str, Any] | None = None,
     local_architecture_notes: list[str] | None = None,
+    root_cause: dict[str, Any] | None = None,
 ) -> list[Path]:
     """
     Validates components resolve against the repository's own index before writing
@@ -156,6 +179,11 @@ def generate_single_repository_workflow(
     README in their own section, distinct from architecture_doc_ids -- same
     README-only precedent architecture_doc_ids itself already sets (neither is
     written into the schema-validated task.yaml).
+
+    root_cause is the `fix` procedure's root_cause stage: required when work_type is "fix" (raises ValueError
+    otherwise, before anything is written), validated and stored in task.yaml so execution can enforce and use
+    it. `task.work_type` is recorded for every task so a stage that must hold at execution knows which
+    procedure the task belongs to (previously the work type reached only the README).
     """
     if not TASK_ID.fullmatch(task_id):
         raise ValueError("task ID is not safe for workflow discovery")
@@ -163,6 +191,13 @@ def generate_single_repository_workflow(
         raise ValueError(f"work_type must be one of: {', '.join(WORK_TYPES)}")
     if not completion_conditions:
         raise ValueError("completion_conditions must be a non-empty list")
+    if work_type == "fix" and root_cause is None:
+        raise ValueError(
+            "a fix needs a recorded root cause before it can be planned: "
+            "root_cause.statement and root_cause.evidence (see `escape-ai fix --help`)"
+        )
+    if root_cause is not None:
+        root_cause = validate_root_cause(root_cause, objective)
     _validate_components(repository, components)
 
     index = load_repository_index(repository)
@@ -172,11 +207,13 @@ def generate_single_repository_workflow(
         "schema_version": 1,
         "task": {
             "id": task_id, "title": objective[:80], "objective": objective,
-            "repository": repository_id, "status": "ready",
+            "repository": repository_id, "status": "ready", "work_type": work_type,
         },
         "scope": {"components": components},
         "completion_conditions": completion_conditions,
     }
+    if root_cause is not None:
+        task_document["root_cause"] = root_cause
     if initiative:
         task_document["task"]["initiative"] = initiative
 
@@ -189,7 +226,7 @@ def generate_single_repository_workflow(
         _render_task_readme(
             task_id, objective, work_type, components, scope_boundary,
             completion_conditions, rollout_needs, architecture_doc_ids, initiative,
-            local_architecture_notes,
+            local_architecture_notes, root_cause,
         ),
         encoding="utf-8",
     )
@@ -249,6 +286,7 @@ def generate_multi_repository_workflow(
     objective: str,
     work_type: str,
     tasks: dict[str, dict[str, Any]],
+    root_cause: dict[str, Any] | None = None,
 ) -> dict[str, list[Path]]:
     """
     tasks maps repository_id -> {"task_id", "components", "scope_boundary",
@@ -265,9 +303,20 @@ def generate_multi_repository_workflow(
     depends_on is not restricted to a straight chain -- an arbitrary graph
     (branching, diamonds, independent subgraphs) is accepted as long as it's
     acyclic; nothing here infers order from dict iteration.
+
+    root_cause (one per initiative: a multi-repository fix has one cause) is required for a fix and validated
+    here, up front, so a bad or missing one fails before any repository is touched; it is then recorded in
+    every repository's task.
     """
     if work_type not in WORK_TYPES:
         raise ValueError(f"work_type must be one of: {', '.join(WORK_TYPES)}")
+    if work_type == "fix" and root_cause is None:
+        raise ValueError(
+            "a fix needs a recorded root cause before it can be planned: "
+            "root_cause.statement and root_cause.evidence (see `escape-ai fix --help`)"
+        )
+    if root_cause is not None:
+        root_cause = validate_root_cause(root_cause, objective)
 
     errors: list[str] = []
     resolved: dict[str, Path] = {}
@@ -303,6 +352,6 @@ def generate_multi_repository_workflow(
         written[repository_id] = generate_single_repository_workflow(
             resolved[repository_id], repository_id, task["task_id"], objective, work_type,
             task["components"], task.get("scope_boundary", ""), task["completion_conditions"],
-            task.get("rollout_needs", ""), initiative, task.get("local_architecture_notes"),
+            task.get("rollout_needs", ""), initiative, task.get("local_architecture_notes"), root_cause,
         )
     return written

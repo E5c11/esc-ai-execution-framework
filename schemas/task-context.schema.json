@@ -14,7 +14,18 @@
       "properties": {
         "id": {"type": "string"},
         "repository": {"type": "string"},
-        "objective": {"type": "string"}
+        "objective": {"type": "string"},
+        "work_type": {"enum": ["feature", "fix", "refactor", "maintenance", "investigation"]},
+        "root_cause": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["statement", "evidence"],
+          "properties": {
+            "statement": {"type": "string"},
+            "evidence": {"type": "array", "items": {"type": "string"}},
+            "reproduction": {"type": "string"}
+          }
+        }
       }
     },
     "routing": {

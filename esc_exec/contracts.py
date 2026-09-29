@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from esc_exec.root_cause import validate_root_cause
 from esc_exec.json_io import load_json
 from esc_exec.model import ManifestState, ValidationResult
 from esc_exec.yaml_io import load_yaml
@@ -119,7 +120,10 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 ENUMS: dict[str, dict[str, set[str]]] = {
-    "task": {"task.status": {"draft", "ready", "active", "blocked", "complete", "cancelled"}},
+    "task": {
+        "task.status": {"draft", "ready", "active", "blocked", "complete", "cancelled"},
+        "task.work_type": {"feature", "fix", "refactor", "maintenance", "investigation"},
+    },
     "workspace": {
         "workspace.kind": {"local", "worktree", "container", "remote"},
         "workspace.isolation": {"none", "process", "filesystem", "container", "remote"},
@@ -237,6 +241,17 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
             conditions = document.get("completion_conditions")
             if not isinstance(conditions, list) or not conditions:
                 messages.append(prefix + "completion_conditions must be a non-empty list")
+            # The `fix` procedure's root_cause stage (esc_exec.procedures): a fix task is not executable
+            # without a well-formed recorded root cause, even if task.yaml was edited by hand.
+            root_cause = document.get("root_cause")
+            work_type = _value_at(document, "task.work_type")
+            if work_type == "fix" and root_cause is None:
+                messages.append(prefix + "root_cause is required for a fix task (record why it is broken before implementing)")
+            if root_cause is not None:
+                try:
+                    validate_root_cause(root_cause, _value_at(document, "task.objective") or "")
+                except ValueError as exc:
+                    messages.append(prefix + str(exc))
         if kind == "checkpoint":
             progress = document.get("progress", {})
             for field in ("completed", "decisions", "remaining", "blockers", "artifacts"):

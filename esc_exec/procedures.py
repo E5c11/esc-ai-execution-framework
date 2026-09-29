@@ -90,7 +90,11 @@ OBJECTIVE_GATE = Stage(
 )
 ROOT_CAUSE = Stage(
     name="root_cause", kind="gate", interaction="fixed",
-    maps_to="new -- must be captured and recorded before plan_produce; never auto-skippable",
+    maps_to=(
+        "esc_exec.root_cause.validate_root_cause, enforced by esc_exec.planning (a fix cannot be planned without "
+        "one) and esc_exec.contracts (a fix task is not executable without one); checks the cause was captured "
+        "and is well-formed, not that it is true -- verify decides that; never auto-skippable"
+    ),
 )
 BASELINE_CAPTURE = Stage(
     name="baseline_capture", kind="action", interaction="fixed",

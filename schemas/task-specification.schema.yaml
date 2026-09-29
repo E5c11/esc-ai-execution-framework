@@ -16,6 +16,7 @@ properties:
       objective: {type: string, minLength: 1}
       repository: {type: string, minLength: 1}
       status: {enum: [draft, ready, active, blocked, complete, cancelled]}
+      work_type: {enum: [feature, fix, refactor, maintenance, investigation]}
       initiative:
         type: object
         additionalProperties: false
@@ -40,5 +41,12 @@ properties:
       adapter: {type: string, minLength: 1}
       policy: {type: string, minLength: 1}
   completion_conditions: {type: array, minItems: 1, items: {type: string, minLength: 1}}
+  root_cause:
+    type: object
+    additionalProperties: false
+    required: [statement, evidence]
+    properties:
+      statement: {type: string, minLength: 1}
+      evidence: {type: array, minItems: 1, items: {type: string, minLength: 1}}
+      reproduction: {type: string, minLength: 1}
   references: {type: array, items: {type: string, minLength: 1}}
-

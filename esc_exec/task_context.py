@@ -112,6 +112,10 @@ def build_task_context(
             "max_references": max_references,
         },
     }
+    if task.get("work_type"):
+        document["task"]["work_type"] = task["work_type"]
+    if task_document.get("root_cause"):
+        document["task"]["root_cause"] = task_document["root_cause"]
     if not document["routing"]["input_digest"]:
         document["routing"].pop("input_digest")
     write_json(output, document)

@@ -53,6 +53,7 @@ source_modules =
     esc_exec.registry
     esc_exec.reporting
     esc_exec.roadmap
+    esc_exec.root_cause
     esc_exec.task_context
     esc_exec.workflow_bootstrap
     esc_exec.yaml_io
@@ -94,6 +95,7 @@ source_modules =
     esc_exec.registry
     esc_exec.reporting
     esc_exec.roadmap
+    esc_exec.root_cause
     esc_exec.task_context
     esc_exec.workflow_bootstrap
     esc_exec.yaml_io
