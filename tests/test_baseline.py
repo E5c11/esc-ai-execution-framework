@@ -81,6 +81,10 @@ class ProcedureClaimTests(unittest.TestCase):
         self.assertIn("esc_exec.baseline", BASELINE_CAPTURE.maps_to)
         self.assertIn("vacuously", BASELINE_CAPTURE.maps_to)
 
+    def test_it_is_a_gate_because_it_can_refuse_a_run(self):
+        self.assertEqual("gate", BASELINE_CAPTURE.kind)
+        self.assertTrue(BASELINE_CAPTURE.mandatory)
+
 
 if __name__ == "__main__":
     unittest.main()

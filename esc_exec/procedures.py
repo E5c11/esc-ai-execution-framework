@@ -97,7 +97,7 @@ ROOT_CAUSE = Stage(
     ),
 )
 BASELINE_CAPTURE = Stage(
-    name="baseline_capture", kind="action", interaction="fixed",
+    name="baseline_capture", kind="gate", interaction="fixed",
     maps_to=(
         "esc_exec.baseline (plan_blockers, baseline_blockers) over "
         "esc_exec.verification_execution.execute_verification_plan run against the untouched code before dispatch; "
