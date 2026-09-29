@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -150,10 +151,8 @@ def summarize_junit_reports(
             raise ValueError("JUnit XML root must be testsuite or testsuites")
         for case in root.iter("testcase"):
             tests += 1
-            try:
+            with contextlib.suppress(ValueError):  # a malformed <testcase time=...> counts as 0 ms
                 duration_ms += round(float(case.get("time", "0")) * 1000)
-            except ValueError:
-                pass
             skipped_node = case.find("skipped")
             failure_node = case.find("failure")
             error_node = case.find("error")

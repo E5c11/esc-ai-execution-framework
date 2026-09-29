@@ -153,7 +153,7 @@ def build_dependency_graph(repository: Path) -> dict[str, Any]:
         for project, component in project_to_component.items()
     }
     edges = []
-    for consumer, (manifest_path, manifest) in manifests.items():
+    for consumer, (_manifest_path, manifest) in manifests.items():
         if manifest.get("build", {}).get("project") is None:
             # No Gradle project path -- e.g. an npm component's build file is
             # package.json, not something to scan for Gradle project-dependency

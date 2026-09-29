@@ -453,7 +453,7 @@ def apply_onboarding_answers(
 
     written: list[Path] = list(generated)
     empty_profile_id_suggestions: list[str] = []
-    for component_id, relative in components:
+    for component_id, _relative in components:
         manifest_path = component_manifest_path(root, component_id)
         manifest = load_yaml(manifest_path)
         answer = answers.get(component_id, {})
@@ -506,7 +506,7 @@ def apply_onboarding_answers(
         except (KeyError, FileNotFoundError, ValueError):
             architecture_index = None
 
-    for component_id, relative in components:
+    for component_id, _relative in components:
         manifest_path = component_manifest_path(root, component_id)
         manifest = load_yaml(manifest_path)
         profile_ids = manifest.get("architecture", {}).get("profile_ids")

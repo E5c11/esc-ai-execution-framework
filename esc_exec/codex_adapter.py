@@ -188,7 +188,7 @@ class CodexAdapter:
             self._event(events, run_id, "artifact.created", "orchestrator", {"artifact_id": artifact_id})
             self._event(events, run_id, "run.completed", "orchestrator", {"status": "succeeded"})
             status = "succeeded"
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- provider boundary: any failure becomes a recorded failed run
             self._event(events, run_id, "run.failed", "orchestrator", {"error": str(exc)[:500]})
             status = "failed"
         self._write_events(run_dir / "events.jsonl", events)

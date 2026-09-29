@@ -11,9 +11,40 @@ license = {text = "Apache-2.0"}
 classifiers = ["License :: OSI Approved :: Apache Software License"]
 dependencies = ["PyYAML>=6.0"]
 
+[project.optional-dependencies]
+dev = ["pytest", "import-linter>=2", "ruff"]
+
 [project.scripts]
 esc-exec = "esc_exec.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["esc_exec*"]
 
+
+# Architecture enforcement (ARCH-PY / PLAT-PY-IMPORT-LINTER). Layer contracts live in .importlinter.
+# Rule families are the subset the code already satisfies. Not enabled yet: import sorting ("I", ~26
+# files would be reordered) and the complexity rules (C901, PLR0912, PLR0915: 6/10/10 functions exceed
+# the defaults and need refactoring, not suppression).
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["."]
+
+[tool.ruff.lint]
+select = ["F", "B", "T20", "TID", "BLE", "S101", "S110", "S602", "S604", "S605", "S608", "DTZ", "E722", "SIM105"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"subprocess".msg = "Process execution belongs in a gateway module (PYGW-PROC-01)."
+"sqlite3".msg = "Persistence I/O does not belong in the engine (ARCH-PY-DEP-01)."
+"socket".msg = "Network I/O belongs in a gateway module (PYGW-TIMEOUT-01)."
+
+[tool.ruff.lint.per-file-ignores]
+"esc_exec/cli.py" = ["T201"]   # the CLI entrypoint may print
+# Gateway modules: the only places processes, git and sockets are allowed.
+"esc_exec/claude_client.py" = ["TID251"]
+"esc_exec/claude_code_adapter.py" = ["TID251"]
+"esc_exec/codex_adapter.py" = ["TID251"]
+"esc_exec/verification_execution.py" = ["TID251"]
+"esc_exec/worktree.py" = ["TID251"]
+"esc_exec/environment.py" = ["TID251"]
+"tests/**" = ["S101", "T20", "BLE001", "B011", "B007", "TID251"]

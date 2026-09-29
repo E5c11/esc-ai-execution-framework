@@ -37,6 +37,13 @@ class ArchitectureTests(unittest.TestCase):
         modules = {f"esc_exec.{p.stem}" for p in PACKAGE.glob("*.py") if p.stem != "__init__"}
         self.assertEqual(set(), modules - mentioned, "modules missing from every contract in .importlinter")
 
+    def test_ruff_architecture_rules_hold(self):
+        ruff = shutil.which("ruff") or str(Path(sys.executable).with_name("ruff"))
+        if not Path(ruff).exists():
+            self.skipTest("ruff is not installed")
+        result = subprocess.run([ruff, "check", "esc_exec"], cwd=ROOT, capture_output=True, text=True, timeout=120, check=False)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

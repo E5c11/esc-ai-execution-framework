@@ -203,7 +203,7 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
         return ValidationResult(ManifestState.INVALID, str(path), [str(exc)])
     messages: list[str] = []
     last_sequence = -1
-    for position, document in enumerate(documents, start=1):
+    for _position, document in enumerate(documents, start=1):
         line = document.pop("__line__", None)
         prefix = f"line {line}: " if line else ""
         if document.get("schema_version") != 1:
