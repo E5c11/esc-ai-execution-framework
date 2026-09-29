@@ -1,0 +1,107 @@
+# Architecture contracts for the execution engine (ARCH-PY, PLAT-PY-IMPORT-LINTER).
+#
+# The engine is a library with a flat public module layout (`esc_exec.<module>` is imported by
+# esc-ai-orchestrator), so modules are classified into groups here rather than moved into
+# packages. Every module must appear in at least one contract below; tests/test_architecture.py
+# fails when a new module is added without being classified.
+#
+#   entrypoint  : __main__, cli
+#   application : conversation, onboarding, ai_suggestions
+#   gateways    : claude_code_adapter, claude_client, codex_adapter, opencode_adapter,
+#                 verification_execution, worktree, environment  (processes, network, git)
+#   core        : everything else -- manifests, indexing, planning, contracts, procedures, ...
+
+[importlinter]
+root_packages =
+    esc_exec
+include_external_packages = True
+
+[importlinter:contract:entrypoints-on-top]
+name = Only __main__ imports cli; cli sits above the application and gateways
+type = layers
+layers =
+    esc_exec.__main__
+    esc_exec.cli
+    esc_exec.conversation | esc_exec.onboarding
+    esc_exec.ai_suggestions
+    esc_exec.claude_code_adapter | esc_exec.codex_adapter | esc_exec.opencode_adapter
+    esc_exec.claude_client
+    esc_exec.claude_policy
+
+[importlinter:contract:core-not-gateways]
+name = Core modules do not import gateways or the application layer
+type = forbidden
+source_modules =
+    esc_exec.adapters
+    esc_exec.architecture
+    esc_exec.architecture_lookup
+    esc_exec.checkpoints
+    esc_exec.contracts
+    esc_exec.dependencies
+    esc_exec.framework_descriptor
+    esc_exec.gradle
+    esc_exec.indexing
+    esc_exec.instructions
+    esc_exec.json_io
+    esc_exec.local_architecture
+    esc_exec.manifests
+    esc_exec.measurement
+    esc_exec.model
+    esc_exec.npm
+    esc_exec.planning
+    esc_exec.procedures
+    esc_exec.registry
+    esc_exec.reporting
+    esc_exec.roadmap
+    esc_exec.task_context
+    esc_exec.workflow_bootstrap
+    esc_exec.yaml_io
+forbidden_modules =
+    esc_exec.cli
+    esc_exec.conversation
+    esc_exec.onboarding
+    esc_exec.ai_suggestions
+    esc_exec.claude_code_adapter
+    esc_exec.claude_client
+    esc_exec.codex_adapter
+    esc_exec.opencode_adapter
+    esc_exec.verification_execution
+    esc_exec.worktree
+    esc_exec.environment
+
+[importlinter:contract:core-does-no-io]
+name = Core modules run no processes and open no sockets or databases
+type = forbidden
+source_modules =
+    esc_exec.adapters
+    esc_exec.architecture
+    esc_exec.architecture_lookup
+    esc_exec.checkpoints
+    esc_exec.contracts
+    esc_exec.dependencies
+    esc_exec.framework_descriptor
+    esc_exec.gradle
+    esc_exec.indexing
+    esc_exec.instructions
+    esc_exec.json_io
+    esc_exec.local_architecture
+    esc_exec.manifests
+    esc_exec.measurement
+    esc_exec.model
+    esc_exec.npm
+    esc_exec.planning
+    esc_exec.procedures
+    esc_exec.registry
+    esc_exec.reporting
+    esc_exec.roadmap
+    esc_exec.task_context
+    esc_exec.workflow_bootstrap
+    esc_exec.yaml_io
+forbidden_modules =
+    subprocess
+    socket
+    sqlite3
+    urllib
+    http
+    requests
+    httpx
