@@ -79,21 +79,21 @@ def _not_run_check(check: dict[str, Any], status: str) -> dict[str, Any]:
     }
 
 
-def _log_paths(run_dir: Path, workspace_root: Path, gate_id: str, check_id: str) -> tuple[Path, Path, str, str]:
+def _log_paths(run_dir: Path, relative_to: Path, gate_id: str, check_id: str) -> tuple[Path, Path, str, str]:
     logs_dir = run_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     stdout_file = logs_dir / f"{gate_id}-{check_id}.stdout.log"
     stderr_file = logs_dir / f"{gate_id}-{check_id}.stderr.log"
     try:
-        stdout_relative = str(stdout_file.relative_to(workspace_root))
-        stderr_relative = str(stderr_file.relative_to(workspace_root))
+        stdout_relative = str(stdout_file.relative_to(relative_to))
+        stderr_relative = str(stderr_file.relative_to(relative_to))
     except ValueError as exc:
-        raise ValueError("run_dir must be inside workspace_root so log paths stay workspace-relative") from exc
+        raise ValueError("run_dir must be inside the directory paths are reported relative to (workspace_root by default)") from exc
     return stdout_file, stderr_file, stdout_relative, stderr_relative
 
 
 def _locate_report(
-    check: dict[str, Any], workspace_root: Path, run_dir: Path, gate_id: str
+    check: dict[str, Any], workspace_root: Path, run_dir: Path, gate_id: str, relative_to: Path | None = None,
 ) -> tuple[str | None, str | None]:
     """
     Best-effort report enrichment. Never raises: a missing or malformed report
@@ -132,7 +132,7 @@ def _locate_report(
             status_override = None
     except (OSError, ValueError):
         return None, None
-    return str(output.relative_to(workspace_root)), status_override
+    return str(output.relative_to(relative_to or workspace_root)), status_override
 
 
 def execute_verification_plan(
@@ -140,13 +140,22 @@ def execute_verification_plan(
     workspace_root: Path,
     run_dir: Path,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    relative_to: Path | None = None,
 ) -> dict[str, Any]:
     """Run a verification plan's gate commands directly, independent of any AI adapter.
 
     Mirrors ``build_verification_plan``'s gate/check shape but produces a
     ``verification-result`` contract instead: real exit codes and durations captured
     by escape-ai's own subprocess call, never the agent's self-report.
+
+    ``workspace_root`` is the tree the commands run in -- it MUST be the tree the agent actually changed. For a
+    run that edited a disposable git worktree that is the worktree, not the live checkout (see
+    ``esc_exec.worktree.verification_root``); verifying the checkout instead tests code the agent never touched.
+    Logs and summaries are written under ``run_dir`` and reported relative to ``relative_to`` (default
+    ``workspace_root``), so a run directory that lives in the live checkout can be reported while the commands
+    run elsewhere.
     """
+    relative_to = relative_to or workspace_root
     order = plan["strategy"]["order"]
     plan_gates = {gate["id"]: gate for gate in plan["gates"]}
     stopped = False
@@ -174,7 +183,7 @@ def execute_verification_plan(
                 check_results.append(_not_run_check(check, "not-run"))
                 continue
             stdout_file, stderr_file, stdout_relative, stderr_relative = _log_paths(
-                run_dir, workspace_root, gate_id, check["id"]
+                run_dir, relative_to, gate_id, check["id"]
             )
             command = list(check["command"])
             started = time.monotonic()
@@ -210,7 +219,7 @@ def execute_verification_plan(
                 status = "error"
             report_path, status_override = None, None
             if status in {"passed", "failed"}:
-                report_path, status_override = _locate_report(check, workspace_root, run_dir, gate_id)
+                report_path, status_override = _locate_report(check, workspace_root, run_dir, gate_id, relative_to)
             if status_override:
                 status = status_override
             if status in {"failed", "error"}:

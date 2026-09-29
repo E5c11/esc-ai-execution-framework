@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -228,3 +229,24 @@ def repository_state(repository: Path) -> dict[str, object] | None:
             digest = hashlib.sha1(target.read_bytes(), usedforsecurity=False).hexdigest()
         files[path] = f"{code}:{digest}"
     return {"head": head.stdout.strip(), "files": files}
+
+
+def verification_root(repository: Path, task_id: str, run_dir: Path) -> Path:
+    """The tree a run's verification gates must run in: the task's worktree when the run edited and kept one, else
+    the repository itself.
+
+    The Claude Code adapter edits a disposable git worktree and records `bindings.worktree` (with `kept`, true only
+    when the agent produced commits) in the run's `run.json`. Those edits are not in the live checkout until a human
+    promotes them, so verifying the checkout would test the code as it was before the agent started -- passing a
+    change that breaks the build and failing one that fixes it. The Codex and OpenCode adapters edit the live
+    checkout and record no worktree, so they verify the repository, as before. The run's own record decides, the
+    same signal the scheduler already uses to tell a run that changed something from one that did not."""
+    try:
+        binding = json.loads((run_dir / "run.json").read_text(encoding="utf-8")).get("bindings", {}).get("worktree")
+    except (OSError, ValueError):
+        return repository
+    if binding and binding.get("kept"):
+        path = worktree_path(repository, task_id)
+        if path.is_dir():
+            return path
+    return repository
