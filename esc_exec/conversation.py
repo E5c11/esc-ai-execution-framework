@@ -4,9 +4,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from esc_exec.claude_code_adapter import (
-    ClaudeCodeClient, ClaudeCodeError, build_groundable_prompt, extract_json_object,
-    groundable_component_ids, parse_groundable_response, result_message,
+from esc_exec.claude_code_adapter import ClaudeCodeClient, ClaudeCodeError, result_message
+from esc_exec.ai_suggestions import (
+    build_groundable_prompt,
+    extract_json_object,
+    groundable_component_ids,
+    parse_groundable_response,
 )
 from esc_exec.planning import WORK_TYPES
 from esc_exec.roadmap import save_conversation_summary

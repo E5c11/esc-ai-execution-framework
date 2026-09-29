@@ -6,9 +6,19 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from esc_exec.claude_code_adapter import (
-    ClaudeCodeAdapter, ClaudeCodeClient, ClaudeCodeError, _extract_architecture_style, _suggest_groundable_answers,
-    claude_auth_status, granted_categories, suggest_architecture_coverage_gap, suggest_onboarding_answers,
-    suggest_work_type_drift, tools_for_policy,
+    ClaudeCodeAdapter,
+    ClaudeCodeClient,
+    ClaudeCodeError,
+    claude_auth_status,
+    granted_categories,
+    tools_for_policy,
+)
+from esc_exec.ai_suggestions import (
+    _extract_architecture_style,
+    _suggest_groundable_answers,
+    suggest_architecture_coverage_gap,
+    suggest_onboarding_answers,
+    suggest_work_type_drift,
 )
 from esc_exec.contracts import validate_contract
 from esc_exec.model import ManifestState
@@ -596,7 +606,7 @@ class WorktreeIsolationTests(unittest.TestCase):
 class ClaudeCodeClientAskTests(unittest.TestCase):
     def test_ask_parses_json_output_without_verbose_flag(self):
         fake_result = MagicMock(returncode=0, stdout='{"result": "ok", "is_error": false}', stderr="")
-        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result) as mock_run:
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result) as mock_run:
             outcome = ClaudeCodeClient().ask(Path("/tmp"), "prompt", ["Read"])
             self.assertEqual({"result": "ok", "is_error": False}, outcome)
             command = mock_run.call_args.args[0]
@@ -606,13 +616,13 @@ class ClaudeCodeClientAskTests(unittest.TestCase):
 
     def test_ask_raises_on_non_json_output(self):
         fake_result = MagicMock(returncode=0, stdout="not json", stderr="")
-        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result):
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result):
             with self.assertRaises(ClaudeCodeError):
                 ClaudeCodeClient().ask(Path("/tmp"), "prompt", ["Read"])
 
     def test_ask_raises_on_nonzero_exit(self):
         fake_result = MagicMock(returncode=1, stdout="", stderr="rate limited")
-        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result):
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result):
             with self.assertRaisesRegex(ClaudeCodeError, "rate limited"):
                 ClaudeCodeClient().ask(Path("/tmp"), "prompt", ["Read"])
 
@@ -626,7 +636,7 @@ class HardDenySettingsTests(unittest.TestCase):
 
     def test_run_carries_hard_deny_settings(self):
         fake_result = MagicMock(returncode=0, stdout=json.dumps(_stream_json()[-1]) + "\n", stderr="")
-        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result) as mock_run:
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result) as mock_run:
             ClaudeCodeClient().run(Path("/tmp"), "prompt", ["Bash"])
             command = mock_run.call_args.args[0]
             self.assertIn("--settings", command)
@@ -639,14 +649,14 @@ class HardDenySettingsTests(unittest.TestCase):
 
     def test_ask_also_carries_hard_deny_settings(self):
         fake_result = MagicMock(returncode=0, stdout='{"result": "ok", "is_error": false}', stderr="")
-        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result) as mock_run:
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result) as mock_run:
             ClaudeCodeClient().ask(Path("/tmp"), "prompt", ["Read"])
             command = mock_run.call_args.args[0]
             self.assertIn("--settings", command)
 
     def test_hard_deny_settings_is_valid_json_regardless_of_tool_grant(self):
         fake_result = MagicMock(returncode=0, stdout=json.dumps(_stream_json()[-1]) + "\n", stderr="")
-        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result) as mock_run:
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result) as mock_run:
             ClaudeCodeClient().run(Path("/tmp"), "prompt", [])
             command = mock_run.call_args.args[0]
             settings = json.loads(command[command.index("--settings") + 1])
@@ -1032,23 +1042,23 @@ class ClaudeAuthStatusTests(unittest.TestCase):
         fake_result = MagicMock(returncode=0, stdout=json.dumps({
             "loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "pro",
         }))
-        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result):
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result):
             status = claude_auth_status()
             self.assertEqual(True, status["loggedIn"])
             self.assertEqual("pro", status["subscriptionType"])
 
     def test_nonzero_exit_returns_none(self):
         fake_result = MagicMock(returncode=1, stdout="")
-        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result):
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result):
             self.assertIsNone(claude_auth_status())
 
     def test_missing_binary_returns_none(self):
-        with patch("esc_exec.claude_code_adapter.subprocess.run", side_effect=FileNotFoundError):
+        with patch("esc_exec.claude_client.subprocess.run", side_effect=FileNotFoundError):
             self.assertIsNone(claude_auth_status())
 
     def test_unparseable_output_returns_none(self):
         fake_result = MagicMock(returncode=0, stdout="not json")
-        with patch("esc_exec.claude_code_adapter.subprocess.run", return_value=fake_result):
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result):
             self.assertIsNone(claude_auth_status())
 
 
