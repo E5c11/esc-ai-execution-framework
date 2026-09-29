@@ -12,7 +12,7 @@ from esc_exec.root_cause import validate_root_cause
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
-WORK_TYPES = ("feature", "fix", "refactor", "maintenance", "investigation")
+WORK_TYPES = ("feature", "fix", "refactor", "maintenance", "investigation", "plan", "document")
 
 
 def route_objective(repository: Path, objective: str, max_matches: int = 5) -> list[Match]:

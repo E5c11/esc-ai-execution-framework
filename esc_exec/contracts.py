@@ -122,7 +122,7 @@ REQUIRED: dict[str, dict[str, tuple[str, ...]]] = {
 ENUMS: dict[str, dict[str, set[str]]] = {
     "task": {
         "task.status": {"draft", "ready", "active", "blocked", "complete", "cancelled"},
-        "task.work_type": {"feature", "fix", "refactor", "maintenance", "investigation"},
+        "task.work_type": {"feature", "fix", "refactor", "maintenance", "investigation", "plan", "document"},
     },
     "workspace": {
         "workspace.kind": {"local", "worktree", "container", "remote"},
@@ -153,7 +153,7 @@ ENUMS: dict[str, dict[str, set[str]]] = {
         "tokens.status": {"reported", "unavailable"},
     },
     "initiative": {
-        "initiative.work_type": {"feature", "fix", "refactor", "maintenance", "investigation"},
+        "initiative.work_type": {"feature", "fix", "refactor", "maintenance", "investigation", "plan", "document"},
     },
     "process-metrics": {
         "process.kind": {"onboarding", "planning"},

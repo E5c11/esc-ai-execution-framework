@@ -16,7 +16,7 @@ from esc_exec.model import ManifestState
 from esc_exec.registry import resolve_route
 from esc_exec.architecture_lookup import architecture_prompt_lines
 from esc_exec.roadmap import roadmap_prompt_line
-from esc_exec.root_cause import root_cause_prompt_lines
+from esc_exec.procedure_prompt import procedure_prompt_lines
 from esc_exec.task_context import build_task_context
 from esc_exec.yaml_io import load_yaml
 from esc_exec.measurement import run_metrics
@@ -279,7 +279,7 @@ class CodexAdapter:
         roadmap_line = roadmap_prompt_line(repository)
         if roadmap_line:
             lines.append(roadmap_line)
-        lines += root_cause_prompt_lines(context)
+        lines += procedure_prompt_lines(context)
         lines += [
             self._sandbox_constraints(sandbox),
             f"Declared components: {', '.join(component['id'] for component in components)}.",

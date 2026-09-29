@@ -15,7 +15,7 @@
         "id": {"type": "string"},
         "repository": {"type": "string"},
         "objective": {"type": "string"},
-        "work_type": {"enum": ["feature", "fix", "refactor", "maintenance", "investigation"]},
+        "work_type": {"enum": ["feature", "fix", "refactor", "maintenance", "investigation", "plan", "document"]},
         "root_cause": {
           "type": "object",
           "additionalProperties": false,

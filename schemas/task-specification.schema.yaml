@@ -16,7 +16,7 @@ properties:
       objective: {type: string, minLength: 1}
       repository: {type: string, minLength: 1}
       status: {enum: [draft, ready, active, blocked, complete, cancelled]}
-      work_type: {enum: [feature, fix, refactor, maintenance, investigation]}
+      work_type: {enum: [feature, fix, refactor, maintenance, investigation, plan, document]}
       initiative:
         type: object
         additionalProperties: false

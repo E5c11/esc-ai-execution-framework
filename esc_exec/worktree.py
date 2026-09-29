@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 from pathlib import Path
@@ -193,3 +194,37 @@ def merge_worktree(repository: Path, task_id: str) -> None:
     if result.returncode != 0:
         raise WorktreeError(f"git merge failed: {result.stderr.strip()}")
     remove_worktree(repository, task_id, delete_branch=True)
+
+
+def repository_state(repository: Path) -> dict[str, object] | None:
+    """A snapshot of a git checkout for the read-only backstop (esc_exec.read_only): `{"head", "files"}` where
+    `files` maps every path git reports as changed or untracked to a hash of its current content (None when the
+    path no longer exists). The hash matters: `git status` alone cannot tell that an already-modified file was
+    modified *again*. Returns None when `repository` is not a git checkout, so the caller can record that the
+    check was skipped instead of pretending it passed."""
+    head = _run(repository, "rev-parse", "HEAD")
+    if head.returncode != 0:
+        return None
+    status = subprocess.run(
+        ["git", "-C", str(repository), "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    if status.returncode != 0:
+        return None
+    files: dict[str, str | None] = {}
+    entries = status.stdout.split("\0")
+    index = 0
+    while index < len(entries):
+        entry = entries[index]
+        index += 1
+        if len(entry) < 4:
+            continue
+        code, path = entry[:2], entry[3:]
+        if code[0] in "RC":  # a rename/copy entry is followed by the original path
+            index += 1
+        target = repository / path
+        digest = None
+        if target.is_file():
+            digest = hashlib.sha1(target.read_bytes(), usedforsecurity=False).hexdigest()
+        files[path] = f"{code}:{digest}"
+    return {"head": head.stdout.strip(), "files": files}

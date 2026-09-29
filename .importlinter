@@ -49,7 +49,9 @@ source_modules =
     esc_exec.model
     esc_exec.npm
     esc_exec.planning
+    esc_exec.procedure_prompt
     esc_exec.procedures
+    esc_exec.read_only
     esc_exec.registry
     esc_exec.reporting
     esc_exec.roadmap
@@ -91,7 +93,9 @@ source_modules =
     esc_exec.model
     esc_exec.npm
     esc_exec.planning
+    esc_exec.procedure_prompt
     esc_exec.procedures
+    esc_exec.read_only
     esc_exec.registry
     esc_exec.reporting
     esc_exec.roadmap
