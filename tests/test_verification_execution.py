@@ -469,6 +469,19 @@ class ClassifyFailureTests(unittest.TestCase):
             classify_failure("", "Execution failed for task ':compileKotlin'.\nReceived status code 401"),
         )
 
+    def test_a_test_named_after_an_http_status_is_not_a_dependency_failure(self):
+        # Regression (ampm-backend, 2026-09-01): a real Postgres ConnectException was classified as
+        # dependency-resolution only because a failing HTTP test's *name* contained "401" -- no
+        # dependency fetch failed anywhere in the log. A bare 401/403/"Unauthorized" must not match;
+        # only Gradle's own "status code 40x" wording does.
+        log = (
+            "GET portal promo-destinations returns 401 when unauthenticated() FAILED\n"
+            "java.net.ConnectException: Connection refused"
+        )
+        self.assertEqual("connectivity", classify_failure("", log))
+        self.assertEqual("other", classify_failure("", "the response was 403 Forbidden or Unauthorized, as asserted"))
+        self.assertEqual("dependency-resolution", classify_failure("", "Received status code 403 from server: Forbidden"))
+
 
 if __name__ == "__main__":
     unittest.main()

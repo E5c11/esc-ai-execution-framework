@@ -18,9 +18,22 @@ DEFAULT_TIMEOUT_SECONDS = 1800
 # from a package registry) shouldn't fall through and also match a more generic
 # later one. See plan/active/pre-flight-doctor-and-gate-prerequisites.md finding
 # #6 -- these are exactly the categories that finding names.
+#
+# The 401/403 half of this pattern is anchored to "status code 40x" (Gradle's own
+# dependency-fetch wording, e.g. "Could not GET '...'. Received status code 401
+# from server: Unauthorized"), not a bare `\b401\b|\b403\b` -- a bare match
+# false-positived on run-90196047ffef40ba9a3b5744386df2ae (ampm-backend,
+# 2026-09-01): a real Postgres ConnectException got mis-classified as
+# "dependency-resolution" purely because a failing HTTP test's own name/assertion
+# happened to mention the literal string "401" ("GET portal promo-destinations
+# returns 401 when unauthenticated()"), with no dependency-fetch failure anywhere
+# in the log at all -- confirmed via `grep -niE
+# "401|403|could not resolve|unauthorized|PKIX|authentication required"` against
+# that run's final-repository-tests logs, which hit only that test name, not a
+# real auth/resolution failure.
 _FAILURE_CATEGORY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("dependency-resolution", re.compile(
-        r"\b401\b|\b403\b|Could not resolve|Unauthorized|PKIX path building failed|authentication required",
+        r"status code 401\b|status code 403\b|Could not resolve|PKIX path building failed|authentication required",
         re.IGNORECASE,
     )),
     ("connectivity", re.compile(
