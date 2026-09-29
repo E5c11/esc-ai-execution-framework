@@ -35,6 +35,7 @@ source_modules =
     esc_exec.adapters
     esc_exec.architecture
     esc_exec.architecture_lookup
+    esc_exec.baseline
     esc_exec.checkpoints
     esc_exec.contracts
     esc_exec.dependencies
@@ -79,6 +80,7 @@ source_modules =
     esc_exec.adapters
     esc_exec.architecture
     esc_exec.architecture_lookup
+    esc_exec.baseline
     esc_exec.checkpoints
     esc_exec.contracts
     esc_exec.dependencies

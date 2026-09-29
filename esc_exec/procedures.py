@@ -98,7 +98,12 @@ ROOT_CAUSE = Stage(
 )
 BASELINE_CAPTURE = Stage(
     name="baseline_capture", kind="action", interaction="fixed",
-    maps_to="new -- runs esc_exec.verification_execution.execute_verification_plan pre-change to record a baseline for verify to diff against",
+    maps_to=(
+        "esc_exec.baseline (plan_blockers, baseline_blockers) over "
+        "esc_exec.verification_execution.execute_verification_plan run against the untouched code before dispatch; "
+        "refuses a refactor with no runnable check or a baseline that is not green, because verification can "
+        "otherwise pass vacuously"
+    ),
 )
 PLAN_PRODUCE = Stage(
     name="plan_produce", kind="action", interaction="fixed",
