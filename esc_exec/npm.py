@@ -264,7 +264,8 @@ def npm_verification_gates(
     if "lint" in scripts:
         component_checks.append({"id": f"{component_id}-lint", "command": _run_script(manager, path, "lint")})
     else:
-        notes.append("no `lint` script: linting is not verified (`next build` does not lint from Next.js 16)")
+        suffix = " (`next build` does not lint from Next.js 16)" if "next" in dependencies else ""
+        notes.append(f"no `lint` script: linting is not verified{suffix}")
 
     component_checks.append({"id": f"{component_id}-tests", "command": _run_script(manager, path, "test", runner or None)})
 

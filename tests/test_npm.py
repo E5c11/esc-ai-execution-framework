@@ -266,6 +266,14 @@ class NpmVerificationGatesTests(unittest.TestCase):
         self.assertTrue(any("typecheck" in note for note in notes))
         self.assertTrue(any("build" in note for note in notes))
 
+    def test_the_missing_lint_note_mentions_next_only_for_a_next_project(self):
+        self._package({"test": "vitest run"}, dependencies={"react": "19.0.0"})
+        _, notes = npm_verification_gates(self.root, "web", ".")
+        self.assertFalse(any("Next.js" in note for note in notes if "lint" in note))
+        self._package({"test": "vitest run"}, dependencies={"next": "16.4.2"})
+        _, notes = npm_verification_gates(self.root, "web", ".")
+        self.assertTrue(any("Next.js" in note for note in notes if "lint" in note))
+
     def test_falls_back_to_tsc_when_typescript_is_installed_and_no_script_exists(self):
         self._package({"test": "jest"}, devDependencies={"typescript": "5.6.0"})
         (self.root / "tsconfig.json").write_text("{}", encoding="utf-8")
