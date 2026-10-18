@@ -46,6 +46,7 @@ source_modules =
     esc_exec.indexing
     esc_exec.instructions
     esc_exec.json_io
+    esc_exec.lint_config
     esc_exec.local_architecture
     esc_exec.manifests
     esc_exec.measurement
@@ -94,6 +95,7 @@ source_modules =
     esc_exec.indexing
     esc_exec.instructions
     esc_exec.json_io
+    esc_exec.lint_config
     esc_exec.local_architecture
     esc_exec.manifests
     esc_exec.measurement

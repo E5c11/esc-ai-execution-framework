@@ -19,6 +19,7 @@ from esc_exec.task_context import build_task_context, build_verification_plan, g
 from esc_exec.verification_execution import DEFAULT_TIMEOUT_SECONDS, execute_verification_plan
 from esc_exec.architecture import check_architecture, generate_architecture_profile
 from esc_exec.architecture_templates import TEMPLATES
+from esc_exec.lint_config import TEMPLATES as LINT_TEMPLATES, lint_coverage_table, write_eslint_config
 from esc_exec.checkpoints import create_checkpoint, inspect_checkpoint, update_checkpoint
 from esc_exec.dependencies import analyze_impact, generate_dependency_graph, validate_dependency_graph
 from esc_exec.measurement import compare_efficiency
@@ -143,6 +144,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--template", choices=TEMPLATES,
         help="Start from a template's rules instead of an empty profile",
     )
+    architecture_lint = architecture_commands.add_parser("lint-config", help="Generate an ESLint config from lintable architecture rules")
+    architecture_lint_commands = architecture_lint.add_subparsers(dest="lint_config_command", required=True)
+    architecture_lint_generate = architecture_lint_commands.add_parser("generate")
+    architecture_lint_generate.add_argument("repository")
+    architecture_lint_generate.add_argument("component")
+    architecture_lint_generate.add_argument("--template", choices=LINT_TEMPLATES, default="web-app")
+    architecture_lint_generate.add_argument("--limits", type=Path, help="Declared limits file (default .esc-ai/lint-limits.yaml)")
+    architecture_lint_generate.add_argument("--force", action="store_true")
+    architecture_lint_commands.add_parser("coverage", help="Show which rules a linter covers")
     architecture_check = architecture_commands.add_parser("check")
     architecture_check.add_argument("repository")
     architecture_check.add_argument("component")
@@ -370,6 +380,19 @@ def main(argv: list[str] | None = None) -> int:
             document = build_verification_plan(repository, args.task, args.output)
             statuses = ", ".join(f"{gate['id']}={gate['status']}" for gate in document["gates"])
             print(f"GENERATED  {args.output} {statuses}")
+            return 0
+        except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
+            print(f"INCOMPLETE {exc}")
+            return 2
+
+    if args.command == "architecture" and args.architecture_command == "lint-config":
+        try:
+            if args.lint_config_command == "coverage":
+                for row in lint_coverage_table():
+                    print(f"{row['coverage']:<19} {row['rule']:<34} {row['by']}")
+                return 0
+            repository = _resolve_repository(args.repository, registry)
+            print(f"GENERATED  {write_eslint_config(repository, args.component, args.template, args.limits, args.force)}")
             return 0
         except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
             print(f"INCOMPLETE {exc}")
