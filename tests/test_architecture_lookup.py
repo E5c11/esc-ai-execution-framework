@@ -164,6 +164,36 @@ class ArchitectureLookupTests(unittest.TestCase):
         suggested = suggest_profile_ids({"ui": "next"}, [], profile_doc_map, architecture_style="web-app")
         self.assertEqual(["PLAT-WEB-NEXT", "PLAT-WEB-NEXT-APP"], suggested)
 
+    def test_web_app_style_adds_the_entry_document_the_framework_names(self):
+        profile_doc_map = {
+            "frameworks": {"ui": {"next": ["PLAT-WEB-NEXT"]}}, "targets": {},
+            "architecture_styles": {"web-app": ["ARCH-WEB-APP-LAYERS"]},
+        }
+        suggested = suggest_profile_ids({"ui": "next"}, [], profile_doc_map, architecture_style="web-app")
+        self.assertEqual(["PLAT-WEB-NEXT", "PLAT-WEB-NEXT-APP", "ARCH-WEB-APP-LAYERS"], suggested)
+
+    def test_web_app_style_does_not_add_the_server_guide_when_the_static_guide_is_selected(self):
+        profile_doc_map = {
+            "frameworks": {
+                "ui": {"next": ["PLAT-WEB-NEXT"]},
+                "runtime": {"static-export": ["PLAT-WEB-NEXT-STATIC"]},
+            },
+            "targets": {},
+            "architecture_styles": {"web-app": ["ARCH-WEB-APP-LAYERS"]},
+        }
+        suggested = suggest_profile_ids(
+            {"ui": "next", "runtime": "static-export"}, [], profile_doc_map, architecture_style="web-app",
+        )
+        self.assertEqual(["PLAT-WEB-NEXT", "PLAT-WEB-NEXT-STATIC", "ARCH-WEB-APP-LAYERS"], suggested)
+
+    def test_a_style_the_framework_does_not_name_adds_nothing(self):
+        profile_doc_map = {
+            "frameworks": {"ui": {"next": ["PLAT-WEB-NEXT"]}}, "targets": {},
+            "architecture_styles": {"web-app": ["ARCH-WEB-APP-LAYERS"]},
+        }
+        suggested = suggest_profile_ids({"ui": "next"}, [], profile_doc_map, architecture_style="web-content")
+        self.assertEqual(["PLAT-WEB-NEXT"], suggested)
+
     def test_suggest_profile_ids_web_app_style_has_no_effect_without_next_resolving(self):
         # The style flag must never add PLAT-WEB-NEXT-APP unless the generic
         # Next.js doc actually resolved first -- a web-app style answer for a

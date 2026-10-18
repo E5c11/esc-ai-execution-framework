@@ -244,6 +244,13 @@ class TypeScriptArchitectureTests(unittest.TestCase):
         self.assertEqual("failed", report["status"])
         self.assertIn("web.layout-present", [r["rule_id"] for r in report["results"] if r["status"] == "failed"])
 
+    def test_a_template_fills_an_empty_profile_but_never_overwrites_one_with_rules(self):
+        generate_architecture_profile(self.root, "web")          # what onboarding writes: no rules
+        profile_path = generate_architecture_profile(self.root, "web", template="web-app")
+        self.assertTrue(load_yaml(profile_path)["rules"])
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            generate_architecture_profile(self.root, "web", template="web-app")
+
     def test_unknown_template_is_an_error(self):
         with self.assertRaisesRegex(ValueError, "unknown architecture template"):
             generate_architecture_profile(self.root, "web", template="nope")

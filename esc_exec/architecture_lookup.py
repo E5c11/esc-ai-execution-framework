@@ -140,9 +140,12 @@ def load_profile_doc_map(framework_root: Path) -> dict[str, Any]:
 
 NEXTJS_GENERIC_PROFILE_ID = "PLAT-WEB-NEXT"
 NEXTJS_WEB_APP_PROFILE_ID = "PLAT-WEB-NEXT-APP"
+NEXTJS_STATIC_PROFILE_ID = "PLAT-WEB-NEXT-STATIC"
 
 
-def refine_profile_ids_for_style(suggested: list[str], architecture_style: str | None) -> list[str]:
+def refine_profile_ids_for_style(
+    suggested: list[str], architecture_style: str | None, profile_doc_map: dict[str, Any] | None = None,
+) -> list[str]:
     """
     Apply the one confirmed architecture_style-driven refinement (see
     plan/active/npm-architecture-profile-detection.md design section 2) to an
@@ -158,13 +161,23 @@ def refine_profile_ids_for_style(suggested: list[str], architecture_style: str |
     (open question 2 in the plan above); adding one would be a guess, not a
     verified mapping.
     """
+    if NEXTJS_GENERIC_PROFILE_ID not in suggested:
+        return suggested
+    refined = list(suggested)
+    # PLAT-WEB-NEXT-APP is the server runtime's guide. A project whose profile already selected the
+    # static-export guide does not run Server Actions, so it is not added on top.
     if (
         architecture_style == "web-app"
-        and NEXTJS_GENERIC_PROFILE_ID in suggested
-        and NEXTJS_WEB_APP_PROFILE_ID not in suggested
+        and NEXTJS_WEB_APP_PROFILE_ID not in refined
+        and NEXTJS_STATIC_PROFILE_ID not in refined
     ):
-        return [*suggested, NEXTJS_WEB_APP_PROFILE_ID]
-    return suggested
+        refined.append(NEXTJS_WEB_APP_PROFILE_ID)
+    # Data-driven part: the architecture framework's profile-doc-map.json may name, per style, the entry
+    # document that brings in the whole architecture (`architecture_styles`). A map without the key adds
+    # nothing, so an older framework behaves exactly as before.
+    style_docs = ((profile_doc_map or {}).get("architecture_styles") or {}).get(architecture_style or "", [])
+    refined.extend(doc_id for doc_id in style_docs if doc_id not in refined)
+    return refined
 
 
 def suggest_profile_ids(
@@ -195,4 +208,4 @@ def suggest_profile_ids(
         for doc_id in framework_map.get(field, {}).get(value, []):
             if doc_id not in suggested:
                 suggested.append(doc_id)
-    return refine_profile_ids_for_style(suggested, architecture_style)
+    return refine_profile_ids_for_style(suggested, architecture_style, profile_doc_map)

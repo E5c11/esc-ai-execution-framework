@@ -520,6 +520,18 @@ class NpmOnboardingTests(unittest.TestCase):
             "esc-verification-profile.yaml", load_yaml(manifest_path)["paths"]["verification_profile"],
         )
 
+    def test_an_explicit_profile_ids_answer_wins_over_the_inferred_suggestion(self):
+        (self.root / "package.json").write_text(
+            json.dumps({"name": "garage-triage", "dependencies": {"next": "15.0.0"}, "scripts": {"test": "vitest run"}}),
+            encoding="utf-8",
+        )
+        registry = self._nextjs_architecture_framework()
+        proposal = analyze_repository(self.root, registry)
+        answers = {"garage-triage": {"purpose": "p", "profile_ids": ["PLAT-WEB-NEXT"]}}
+        apply_onboarding_answers(self.root, proposal, answers, registry)
+        manifest = load_yaml(component_manifest_path(self.root, "garage-triage"))
+        self.assertEqual(["PLAT-WEB-NEXT"], manifest["architecture"]["profile_ids"])
+
 
 class SingleModuleGradleOnboardingTests(unittest.TestCase):
     """

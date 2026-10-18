@@ -45,7 +45,10 @@ def generate_architecture_profile(repository: Path, component_id: str, template:
     manifest_path = repository / component["manifest"]
     manifest = load_yaml(manifest_path)
     output = manifest_path.parent / "esc-architecture-profile.yaml"
-    if output.exists():
+    # Onboarding writes an empty profile for every component. A template may fill that one in; a profile
+    # that already has rules is the author's and is never overwritten.
+    refilling_empty = output.exists() and template is not None and not (load_yaml(output) or {}).get("rules")
+    if output.exists() and not refilling_empty:
         raise ValueError(f"architecture profile already exists: {output}")
     document: dict[str, Any] = {
         "schema_version": 1,

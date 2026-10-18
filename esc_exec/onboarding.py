@@ -473,14 +473,21 @@ def apply_onboarding_answers(
             # since it's already resolved IDs, not raw frameworks/targets to map.
             analyzed_suggestion = proposal.get("profile_id_suggestions", {}).get(component_id)
             attempted = bool(frameworks) or bool(targets) or imported is not None or bool(analyzed_suggestion)
-            if (frameworks or targets) and profile_doc_map is not None:
+            explicit_ids = answer.get("profile_ids")
+            if isinstance(explicit_ids, list) and explicit_ids:
+                # An explicit list wins over every inferred one. A repository-level project profile applies to
+                # every component, which is wrong for a package that is not the app (a framework-free domain
+                # package does not want the Next.js guides), so a component can name its own documents.
+                suggested = [str(doc_id) for doc_id in explicit_ids]
+                attempted = True
+            elif (frameworks or targets) and profile_doc_map is not None:
                 suggested = suggest_profile_ids(
                     frameworks, targets, profile_doc_map, architecture_style=architecture_style,
                 )
             elif analyzed_suggestion:
-                suggested = refine_profile_ids_for_style(list(analyzed_suggestion), architecture_style)
+                suggested = refine_profile_ids_for_style(list(analyzed_suggestion), architecture_style, profile_doc_map)
             else:
-                suggested = refine_profile_ids_for_style(list(repository_suggestion), architecture_style)
+                suggested = refine_profile_ids_for_style(list(repository_suggestion), architecture_style, profile_doc_map)
             if suggested:
                 manifest["architecture"] = {"profile_ids": suggested}
             elif attempted:
