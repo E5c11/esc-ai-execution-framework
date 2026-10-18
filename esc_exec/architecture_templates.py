@@ -145,6 +145,14 @@ def _web_app(component_root: Path) -> dict[str, Any]:
                 "patterns": ["{data-implementations}"],
             },
             {
+                "id": "web.shared-data-only-for-datasources",
+                "type": "forbidden-import",
+                "optional": True,
+                "description": "ARCH-WEB-APP-FEAT-DATA-01: code shared by DataSources lives in the top-level data/ folder, which only DataSources and the composition module import.",
+                "source_roots": [*ui_layers, shared, app],
+                "patterns": [f"{base}data/**"],
+            },
+            {
                 "id": "web.features-through-their-index",
                 "type": "forbidden-import",
                 "optional": True,

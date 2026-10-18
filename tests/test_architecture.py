@@ -233,6 +233,26 @@ class TypeScriptArchitectureTests(unittest.TestCase):
             [result["rule_id"] for result in failed["results"] if result["status"] == "failed"],
         )
 
+    def test_web_app_template_keeps_shared_datasource_code_out_of_other_layers(self):
+        self._write("src/features/feeds/domain/rate.ts", "export const rate = 1\n")
+        self._write("src/features/feeds/hooks/useFeeds.ts", "export const useFeeds = () => 1\n")
+        self._write("src/features/feeds/components/FeedsView.tsx", "export default function V() { return null }\n")
+        self._write("src/features/feeds/data/FirestoreFeedDataSource.ts", "import { toAppError } from '@/data/firestoreErrors'\n")
+        self._write("src/data/firestoreErrors.ts", "import { FirebaseError } from 'firebase/app'\nexport const toAppError = (e: unknown) => e instanceof FirebaseError\n")
+        self._write("src/features/feeds/index.ts", "export {}\n")
+        self._write("src/app/page.tsx", "import '@/features/feeds'\n")
+        generate_architecture_profile(self.root, "web", template="web-app")
+        generate_indexes(self.root)
+        clean = check_architecture(self.root, "web", self.root / "clean.json")
+        self.assertEqual("passed", clean["status"], clean["results"])
+
+        self._write("src/features/feeds/hooks/useFeeds.ts", "import { toAppError } from '@/data/firestoreErrors'\n")
+        failed = check_architecture(self.root, "web", self.root / "dirty.json")
+        self.assertIn(
+            "web.shared-data-only-for-datasources",
+            [r["rule_id"] for r in failed["results"] if r["status"] == "failed"],
+        )
+
     def test_web_app_template_fails_when_the_layout_is_not_the_assumed_one(self):
         import shutil
         shutil.rmtree(self.web / "src")
