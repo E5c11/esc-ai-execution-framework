@@ -56,6 +56,19 @@ def _base(component_root: Path) -> str:
     return ""
 
 
+_GRAB_BAG_NAMES = ("utils", "helpers", "common", "misc", "base", "lib")
+
+
+def _grab_bag_patterns(base: str) -> list[str]:
+    """Folders and files with a name that says nothing, under the source roots (never node_modules)."""
+    roots = ["src"] if base else ["app", "features", "shared", "composition", "data"]
+    patterns: list[str] = []
+    for root in roots:
+        for name in _GRAB_BAG_NAMES:
+            patterns += [f"{root}/**/{name}", *(f"{root}/**/{name}{ext}" for ext in (".ts", ".tsx", ".js", ".jsx"))]
+    return patterns
+
+
 def _web_app(component_root: Path) -> dict[str, Any]:
     base = _base(component_root)
     features = f"{base}features/*"
@@ -151,6 +164,12 @@ def _web_app(component_root: Path) -> dict[str, Any]:
                 "description": "ARCH-WEB-APP-FEAT-DATA-01: code shared by DataSources lives in the top-level data/ folder, which only DataSources and the composition module import.",
                 "source_roots": [*ui_layers, shared, app],
                 "patterns": [f"{base}data/**"],
+            },
+            {
+                "id": "web.no-grab-bag-names",
+                "type": "forbidden-path",
+                "description": "ARCH-WEB-APP-MOD-NAME-01: no module, folder or package is named utils, helpers, common, misc, base or lib; name code for the concept it implements.",
+                "patterns": _grab_bag_patterns(base),
             },
             {
                 "id": "web.features-through-their-index",

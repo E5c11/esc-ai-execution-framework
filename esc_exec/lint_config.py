@@ -33,7 +33,7 @@ COVERAGE: dict[str, tuple[str, str]] = {
     "ARCH-WEB-APP-MOD-FUNC-01": ("partial", "max-lines-per-function, complexity (the compute/IO split stays with a reviewer)"),
     "ARCH-WEB-APP-MOD-CYCLE-01": ("full", "import-x/no-cycle"),
     "ARCH-WEB-APP-MOD-API-01": ("partial", "no `export *` in index.ts (the explicit-exports and import-from-surface halves are the architecture check)"),
-    "ARCH-WEB-APP-MOD-NAME-01": ("architecture-check", "forbidden-path on utils/helpers/common/misc/base folders"),
+    "ARCH-WEB-APP-MOD-NAME-01": ("architecture-check", "forbidden-path in the web-app template (web.no-grab-bag-names)"),
     "ARCH-WEB-APP-EFLOW-ASSERT-01": ("partial", "no non-null assertion, no @ts-ignore, no object-literal assertion; a plain `x as T` over unchecked data cannot be told from a legitimate narrowing"),
     "ARCH-WEB-APP-EFLOW-SWALLOW-01": ("partial", "no empty catch, no floating promise"),
     "ARCH-WEB-APP-OBS-LOG-01": ("partial", "no console.* (the injected logger is a convention)"),

@@ -253,6 +253,24 @@ class TypeScriptArchitectureTests(unittest.TestCase):
             [r["rule_id"] for r in failed["results"] if r["status"] == "failed"],
         )
 
+    def test_web_app_template_flags_grab_bag_names_but_not_node_modules(self):
+        self._write("src/features/feeds/domain/rate.ts", "export const rate = 1\n")
+        self._write("src/app/page.tsx", "export default function P() { return null }\n")
+        generate_architecture_profile(self.root, "web", template="web-app")
+        generate_indexes(self.root)
+        clean = check_architecture(self.root, "web", self.root / "a.json")
+        self.assertEqual("passed", next(r for r in clean["results"] if r["rule_id"] == "web.no-grab-bag-names")["status"])
+
+        self._write("src/shared/utils/format.ts", "export const f = 1\n")
+        self._write("src/features/feeds/helpers.ts", "export const g = 1\n")
+        self._write("node_modules/pkg/utils/index.js", "module.exports = 1\n")
+        report = check_architecture(self.root, "web", self.root / "b.json")
+        result = next(r for r in report["results"] if r["rule_id"] == "web.no-grab-bag-names")
+        self.assertEqual("failed", result["status"])
+        self.assertEqual(
+            {"src/shared/utils", "src/features/feeds/helpers.ts"}, {v["path"] for v in result["violations"]},
+        )
+
     def test_web_app_template_fails_when_the_layout_is_not_the_assumed_one(self):
         import shutil
         shutil.rmtree(self.web / "src")
