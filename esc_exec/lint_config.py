@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from esc_exec.architecture_templates import source_base
 from esc_exec.yaml_io import load_yaml
 
 LIMITS_FILE = ".esc-ai/lint-limits.yaml"
@@ -34,6 +35,8 @@ COVERAGE: dict[str, tuple[str, str]] = {
     "ARCH-WEB-APP-MOD-CYCLE-01": ("full", "import-x/no-cycle"),
     "ARCH-WEB-APP-MOD-API-01": ("partial", "no `export *` in index.ts (the explicit-exports and import-from-surface halves are the architecture check)"),
     "ARCH-WEB-APP-MOD-NAME-01": ("architecture-check", "forbidden-path in the web-app template (web.no-grab-bag-names)"),
+    "ARCH-WEB-APP-COMPOSE-SPLIT-01": ("architecture-check", "web.server-graph-not-in-client-code (no hook or shared module imports the server graph); the client graph being separate is a reviewer rule"),
+    "PLAT-WEB-NEXT-SERVERONLY-01": ("architecture-check", "web.server-graph-imports-server-only checks the server graph module; other modules that hold a credential are a reviewer rule"),
     "ARCH-WEB-APP-EFLOW-ASSERT-01": ("partial", "no non-null assertion, no @ts-ignore, no object-literal assertion; a plain `x as T` over unchecked data cannot be told from a legitimate narrowing"),
     "ARCH-WEB-APP-EFLOW-SWALLOW-01": ("partial", "no empty catch, no floating promise"),
     "ARCH-WEB-APP-OBS-LOG-01": ("partial", "no console.* (the injected logger is a convention)"),
@@ -63,16 +66,30 @@ def load_limits(root: Path, path: Path | None = None) -> dict[str, Any]:
     return limits
 
 
-def generate_eslint_config(limits: dict[str, Any], template: str = "web-app") -> str:
+def _source_roots(base: str) -> list[str]:
+    """The folders holding the project's own source: ``src`` or, without it, the conventional top-level folders."""
+    return ["src"] if base else ["app", "features", "shared", "composition", "data"]
+
+
+def _globs(roots: list[str], pattern: str) -> str:
+    """A TypeScript array literal of ``pattern`` under every root, with ``**`` standing for any depth."""
+    return "[" + ", ".join(f"'{root}/{pattern}'" for root in roots) + "]"
+
+
+def generate_eslint_config(limits: dict[str, Any], template: str = "web-app", base: str = "src/") -> str:
     if template not in TEMPLATES:
         raise ValueError(f"unknown lint template: {template} (known: {', '.join(TEMPLATES)})")
+    roots = _source_roots(base)
+    # Under `src/`, `**` between the root and the layer folder matches the feature folders; without it the roots differ
+    # per layer, so each pattern is written for every root.
+    layer = lambda pattern: _globs(roots, f"**/{pattern}") if base else _globs(["features"], f"**/{pattern}")  # noqa: E731
     component_limit = limits.get("maxComponentFunctionLines")
     component_block = ""
     if component_limit:
         component_block = f"""
   {{
     // Components are mostly markup, so their function-length limit is declared separately (maxComponentFunctionLines).
-    files: ['src/**/components/**/*.tsx'],
+    files: {layer('components/**/*.tsx')},
     rules: {{
       'max-lines-per-function': ['error', {{ max: {component_limit}, skipBlankLines: true, skipComments: true }}],
     }},
@@ -84,8 +101,8 @@ import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 import importX from 'eslint-plugin-import-x';
 
-const sourceFiles = ['src/**/*.{{ts,tsx}}'];
-const pure = ['src/**/domain/**/*.ts', 'src/**/useCases/**/*.ts'];
+const sourceFiles = {_globs(roots, '**/*.{ts,tsx}')};
+const pure = [...{layer('domain/**/*.ts')}, ...{layer('useCases/**/*.ts')}];
 
 export default tseslint.config(
   {{ ignores: ['dist/**', 'node_modules/**', '**/*.test.ts', '**/*.test.tsx', '**/*.contract.ts'] }},
@@ -124,7 +141,7 @@ export default tseslint.config(
   }},{component_block}
   {{
     // ARCH-WEB-APP-MOD-API-01: a public surface lists its exports explicitly.
-    files: ['src/**/index.ts'],
+    files: {layer('index.ts')},
     rules: {{
       'no-restricted-syntax': ['error', {{ selector: 'ExportAllDeclaration', message: 'Do not use `export *` in a public surface; list the exports.' }}],
     }},
@@ -147,7 +164,7 @@ export default tseslint.config(
 
 
 def write_eslint_config(repository: Path, component_id: str, template: str = "web-app",
-                        limits_path: Path | None = None, force: bool = False) -> Path:
+                        limits_path: Path | None = None, force: bool = False, output: str | None = None) -> Path:
     from esc_exec.indexing import INDEX_FILE
     from esc_exec.json_io import load_json
     from esc_exec.manifests import ESC_AI_DIR
@@ -159,11 +176,13 @@ def write_eslint_config(repository: Path, component_id: str, template: str = "we
     root = repository / component["path"]
     # limits are the repository's decision, so they live at the repository root unless a path is given
     limits = load_limits(repository, limits_path)
-    output = root / "eslint.config.ts"
-    if output.exists() and not force:
-        raise ValueError(f"{output} already exists; pass --force to regenerate it")
-    output.write_text(generate_eslint_config(limits, template), encoding="utf-8")
-    return output
+    target = (root / (output or "eslint.config.ts")).resolve()
+    if not target.is_relative_to(root.resolve()):
+        raise ValueError(f"the output must be inside the component: {output}")
+    if target.exists() and not force:
+        raise ValueError(f"{target} already exists; pass --force to regenerate it")
+    target.write_text(generate_eslint_config(limits, template, source_base(root)), encoding="utf-8")
+    return target
 
 
 def lint_coverage_table() -> list[dict[str, str]]:

@@ -159,12 +159,39 @@ def _forbidden_imports(component_root: Path, rule: dict[str, Any]) -> tuple[list
     return violations, len(scanned)
 
 
+def _required_imports(component_root: Path, rule: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    """Every file the ``files`` globs match must import a module matching one of ``patterns``."""
+    files, patterns = rule.get("files"), rule.get("patterns")
+    if not isinstance(files, list) or not files or not isinstance(patterns, list) or not patterns:
+        raise ValueError(f"rule {rule['id']} requires files and patterns")
+    ts_paths = load_tsconfig_paths(component_root)
+    matched = sorted({path for value in files for path in component_root.glob(_owned_path(component_root, value, "file").relative_to(component_root).as_posix()) if path.is_file()})
+    if not matched:
+        if rule.get("optional", False):
+            return [], 0
+        return [{"path": ", ".join(files), "evidence": _VACUOUS}], 0
+    violations: list[dict[str, Any]] = []
+    for path in matched:
+        relative = path.relative_to(component_root)
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for _, specifier in module_specifiers(text):
+            resolved = resolve_import(specifier, path, component_root, ts_paths)
+            candidates = [specifier] if resolved is None else [specifier, resolved]
+            if any(glob_matches(pattern, candidate) for pattern in patterns for candidate in candidates):
+                break
+        else:
+            violations.append({"path": str(relative), "evidence": f"does not import {', '.join(patterns)}"})
+    return violations, len(matched)
+
+
 def _violations(component_root: Path, rule: dict[str, Any]) -> tuple[list[dict[str, Any]], int | None]:
     """Violations for one rule, and how many source files it scanned (``None`` for rules that scan none)."""
     rule_type = rule["type"]
     violations: list[dict[str, Any]] = []
     if rule_type == "forbidden-import":
         return _forbidden_imports(component_root, rule)
+    elif rule_type == "required-import":
+        return _required_imports(component_root, rule)
     elif rule_type == "forbidden-path":
         patterns = rule.get("patterns")
         if not isinstance(patterns, list) or not patterns:

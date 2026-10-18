@@ -271,6 +271,58 @@ class TypeScriptArchitectureTests(unittest.TestCase):
             {"src/shared/utils", "src/features/feeds/helpers.ts"}, {v["path"] for v in result["violations"]},
         )
 
+    def test_required_import_fails_a_file_that_lacks_the_import_and_a_pattern_that_matches_no_file(self):
+        self._write("src/composition/server.ts", "import 'server-only'\nexport const x = 1\n")
+        self._write("src/composition/other.ts", "export const y = 1\n")
+        rule = {"id": "web.server-only", "type": "required-import", "description": "x", "files": ["src/composition/*.ts"], "patterns": ["server-only"]}
+        report = self._check([rule])
+        result = report["results"][0]
+        self.assertEqual("failed", result["status"])
+        self.assertEqual(["src/composition/other.ts"], [v["path"] for v in result["violations"]])
+
+        def recheck(**overrides):
+            profile_path = next((self.root / ".esc-ai/components/web").glob("esc-architecture-profile.yaml"))
+            profile = load_yaml(profile_path)
+            profile["rules"] = [{**rule, **overrides}]
+            write_yaml(profile_path, profile)
+            generate_indexes(self.root)
+            return check_architecture(self.root, "web", self.root / "again.json")["results"][0]["status"]
+
+        self.assertEqual("passed", recheck(files=["src/composition/server.ts"]))
+        self.assertEqual("failed", recheck(files=["src/nothing/*.ts"]))
+        self.assertEqual("passed", recheck(files=["src/nothing/*.ts"], optional=True))
+
+    def test_web_app_template_checks_the_server_runtime_layers_of_a_project_without_src(self):
+        import shutil
+        shutil.rmtree(self.web / "src")
+        (self.web / "tsconfig.json").write_text('{"compilerOptions": {"paths": {"@/*": ["./*"]}}}', encoding="utf-8")
+        self._write("features/faults/domain/fault.ts", "export const x = 1\n")
+        self._write("features/faults/data/FaultStore.ts", "export interface FaultStore {}\n")
+        self._write("features/faults/data/InMemoryFaultStore.ts", "export class InMemoryFaultStore {}\n")
+        self._write("features/faults/actions/save.ts", "'use server'\nimport { serverGraph } from '@/composition/server'\nexport async function save() { return serverGraph() }\n")
+        self._write("features/faults/hooks/useFaults.ts", "export function useFaults() { return 1 }\n")
+        self._write("composition/server.ts", "import 'server-only'\nexport const serverGraph = () => 1\n")
+        self._write("app/page.tsx", "export default function P() { return null }\n")
+        generate_architecture_profile(self.root, "web", template="web-app")
+        generate_indexes(self.root)
+        clean = {r["rule_id"]: r["status"] for r in check_architecture(self.root, "web", self.root / "clean.json")["results"]}
+        for rule_id in ("web.actions-below-the-ui", "web.server-graph-not-in-client-code", "web.server-graph-imports-server-only",
+                        "web.implementations-only-in-composition", "web.sdk-only-in-datasources"):
+            self.assertEqual("passed", clean[rule_id], rule_id)
+
+        self._write("features/faults/actions/save.ts", (
+            "'use server'\nimport { InMemoryFaultStore } from '../data/InMemoryFaultStore'\nimport { useFaults } from '../hooks/useFaults'\n"
+            "import { initializeApp } from 'firebase/app'\nexport async function save() { return [InMemoryFaultStore, useFaults, initializeApp] }\n"
+        ))
+        self._write("features/faults/hooks/useFaults.ts", "import { serverGraph } from '@/composition/server'\nexport function useFaults() { return serverGraph() }\n")
+        self._write("composition/server.ts", "export const serverGraph = () => 1\n")
+        failed = {r["rule_id"]: {v["path"] for v in r["violations"]} for r in check_architecture(self.root, "web", self.root / "bad.json")["results"] if r["status"] == "failed"}
+        self.assertEqual({"features/faults/actions/save.ts"}, failed["web.implementations-only-in-composition"])
+        self.assertEqual({"features/faults/actions/save.ts"}, failed["web.sdk-only-in-datasources"])
+        self.assertEqual({"features/faults/actions/save.ts"}, failed["web.actions-below-the-ui"])
+        self.assertEqual({"features/faults/hooks/useFaults.ts"}, failed["web.server-graph-not-in-client-code"])
+        self.assertEqual({"composition/server.ts"}, failed["web.server-graph-imports-server-only"])
+
     def test_web_app_template_fails_when_the_layout_is_not_the_assumed_one(self):
         import shutil
         shutil.rmtree(self.web / "src")

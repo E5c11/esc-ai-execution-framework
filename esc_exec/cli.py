@@ -151,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     architecture_lint_generate.add_argument("component")
     architecture_lint_generate.add_argument("--template", choices=LINT_TEMPLATES, default="web-app")
     architecture_lint_generate.add_argument("--limits", type=Path, help="Declared limits file (default .esc-ai/lint-limits.yaml)")
+    architecture_lint_generate.add_argument("--output", help="File to write, relative to the component (default eslint.config.ts)")
     architecture_lint_generate.add_argument("--force", action="store_true")
     architecture_lint_commands.add_parser("coverage", help="Show which rules a linter covers")
     architecture_check = architecture_commands.add_parser("check")
@@ -392,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"{row['coverage']:<19} {row['rule']:<34} {row['by']}")
                 return 0
             repository = _resolve_repository(args.repository, registry)
-            print(f"GENERATED  {write_eslint_config(repository, args.component, args.template, args.limits, args.force)}")
+            print(f"GENERATED  {write_eslint_config(repository, args.component, args.template, args.limits, args.force, args.output)}")
             return 0
         except (KeyError, OSError, ValueError, FileNotFoundError) as exc:
             print(f"INCOMPLETE {exc}")

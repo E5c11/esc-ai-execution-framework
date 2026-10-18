@@ -49,7 +49,7 @@ def _provider_sdks(component_root: Path) -> list[str]:
     return patterns
 
 
-def _base(component_root: Path) -> str:
+def source_base(component_root: Path) -> str:
     """``src/`` when the project keeps its folders under ``src``, otherwise the component root."""
     if (component_root / "src/features").is_dir() or (component_root / "src/app").is_dir():
         return "src/"
@@ -70,7 +70,7 @@ def _grab_bag_patterns(base: str) -> list[str]:
 
 
 def _web_app(component_root: Path) -> dict[str, Any]:
-    base = _base(component_root)
+    base = source_base(component_root)
     features = f"{base}features/*"
 
     def layer(name: str) -> str:
@@ -80,12 +80,14 @@ def _web_app(component_root: Path) -> dict[str, Any]:
     app = f"{base}app"
     app_path = app
     ui_layers = [layer("components"), layer("hooks"), layer("useCases"), layer("domain")]
+    # The server runtime's Server Actions are a layer of their own: a host that calls use cases, below the UI.
+    hosts = [*ui_layers, layer("actions")]
     return {
         "pattern_sets": {
             "provider-sdks": _provider_sdks(component_root),
             "framework": _FRAMEWORK_IMPORTS,
             "data-implementations": [
-                "**/data/Firestore*", "**/data/Http*", "**/data/Callable*", "**/data/Default*",
+                "**/data/Firestore*", "**/data/Http*", "**/data/Callable*", "**/data/Default*", "**/data/InMemory*",
             ],
             "feature-internals": [
                 "**/features/*/components/**", "**/features/*/hooks/**", "**/features/*/useCases/**",
@@ -126,7 +128,7 @@ def _web_app(component_root: Path) -> dict[str, Any]:
                 "type": "forbidden-import",
                 "optional": True,
                 "description": "ARCH-WEB-APP-DEP-03: a provider SDK is imported only by DataSources and the composition module.",
-                "source_roots": [*ui_layers, shared, app],
+                "source_roots": [*hosts, shared, app],
                 "patterns": ["{provider-sdks}"],
             },
             {
@@ -154,7 +156,7 @@ def _web_app(component_root: Path) -> dict[str, Any]:
                 "type": "forbidden-import",
                 "optional": True,
                 "description": "ARCH-WEB-APP-DEP-06: concrete DataSources and Repositories are imported only by the composition module and tests.",
-                "source_roots": [*ui_layers, shared, app],
+                "source_roots": [*hosts, shared, app],
                 "patterns": ["{data-implementations}"],
             },
             {
@@ -162,8 +164,35 @@ def _web_app(component_root: Path) -> dict[str, Any]:
                 "type": "forbidden-import",
                 "optional": True,
                 "description": "ARCH-WEB-APP-FEAT-DATA-01: code shared by DataSources lives in the top-level data/ folder, which only DataSources and the composition module import.",
-                "source_roots": [*ui_layers, shared, app],
+                "source_roots": [*hosts, shared, app],
                 "patterns": [f"{base}data/**"],
+            },
+            {
+                "id": "web.actions-below-the-ui",
+                "type": "forbidden-import",
+                "optional": True,
+                "description": "ARCH-WEB-APP-DEP-04: a Server Action is a host for a use case; it imports no component and no hook.",
+                "source_roots": [layer("actions")],
+                "patterns": ["**/components/**", "**/hooks/**"],
+            },
+            {
+                "id": "web.server-graph-not-in-client-code",
+                "type": "forbidden-import",
+                "optional": True,
+                "description": (
+                    "ARCH-WEB-APP-COMPOSE-SPLIT-01: the server graph is imported by Server Actions, routes and Server Component "
+                    "shells, never by a hook or a shared module a Client Component may use."
+                ),
+                "source_roots": [layer("hooks"), shared],
+                "patterns": ["**/composition/server*"],
+            },
+            {
+                "id": "web.server-graph-imports-server-only",
+                "type": "required-import",
+                "optional": True,
+                "description": "PLAT-WEB-NEXT-SERVERONLY-01: the module that holds the server graph imports `server-only`, so importing it from client code fails the build.",
+                "files": [f"{base}composition/server*.ts"],
+                "patterns": ["server-only"],
             },
             {
                 "id": "web.no-grab-bag-names",
