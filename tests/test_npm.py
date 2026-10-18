@@ -4,7 +4,8 @@ import json
 import unittest
 
 from esc_exec.npm import (
-    detect_npm_frameworks_and_targets, detect_npm_repository, npm_component_structure,
+    detect_npm_frameworks_and_targets, detect_npm_repository, detect_package_manager, npm_component_structure,
+    npm_verification_gates,
 )
 
 
@@ -218,6 +219,76 @@ class NpmFrameworkDetectionTests(unittest.TestCase):
             )
             _, targets = detect_npm_frameworks_and_targets(package_json)
             self.assertEqual([], targets)
+
+
+class NpmVerificationGatesTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def _package(self, scripts: dict, path: str = ".", **extra) -> None:
+        directory = self.root / path
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "package.json").write_text(json.dumps({"name": "x", "scripts": scripts, **extra}), encoding="utf-8")
+
+    def test_builds_progressive_gates_from_package_scripts(self):
+        self._package({"typecheck": "tsc --noEmit", "lint": "eslint .", "test": "vitest run", "build": "next build"})
+        gates, notes = npm_verification_gates(self.root, "web", ".")
+        self.assertEqual(["npm", "run", "test", "--", "{test_filter}"], gates["focused"][0]["command"])
+        self.assertEqual(["test_filter"], gates["focused"][0]["requires"])
+        self.assertEqual(
+            [["npm", "run", "typecheck"], ["npm", "run", "lint"], ["npm", "run", "test"]],
+            [check["command"] for check in gates["component"]],
+        )
+        self.assertEqual([["npm", "run", "build"]], [check["command"] for check in gates["final"]])
+        self.assertEqual([], gates["impact"])
+        self.assertEqual([], notes)
+
+    def test_a_missing_test_script_raises_instead_of_generating_an_empty_gate(self):
+        self._package({"build": "next build"})
+        with self.assertRaisesRegex(ValueError, "no `test` script"):
+            npm_verification_gates(self.root, "web", ".")
+
+    def test_a_bare_vitest_script_gets_run_so_it_does_not_watch(self):
+        self._package({"test": "vitest"})
+        gates, _ = npm_verification_gates(self.root, "web", ".")
+        self.assertEqual(["npm", "run", "test", "--", "run"], gates["component"][-1]["command"])
+        self.assertEqual(["npm", "run", "test", "--", "run", "{test_filter}"], gates["focused"][0]["command"])
+
+    def test_missing_lint_typecheck_and_build_are_recorded_not_hidden(self):
+        self._package({"test": "jest"})
+        (self.root / "tsconfig.json").write_text("{}", encoding="utf-8")
+        _, notes = npm_verification_gates(self.root, "web", ".")
+        self.assertTrue(any("lint" in note for note in notes))
+        self.assertTrue(any("typecheck" in note for note in notes))
+        self.assertTrue(any("build" in note for note in notes))
+
+    def test_falls_back_to_tsc_when_typescript_is_installed_and_no_script_exists(self):
+        self._package({"test": "jest"}, devDependencies={"typescript": "5.6.0"})
+        (self.root / "tsconfig.json").write_text("{}", encoding="utf-8")
+        gates, _ = npm_verification_gates(self.root, "web", ".")
+        self.assertEqual(["npx", "--no-install", "tsc", "--noEmit"], gates["component"][0]["command"])
+
+    def test_package_manager_follows_the_lockfile(self):
+        self._package({"test": "vitest run"})
+        (self.root / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+        self.assertEqual("pnpm", detect_package_manager(self.root, self.root))
+        gates, _ = npm_verification_gates(self.root, "web", ".")
+        self.assertEqual(["pnpm", "run", "test"], gates["component"][-1]["command"])
+        self.assertEqual(["pnpm", "run", "test", "{test_filter}"], gates["focused"][0]["command"])
+
+    def test_workspace_member_runs_in_its_own_directory_and_adds_the_repository_test(self):
+        self._package({"test": "vitest run"})
+        self._package({"test": "vitest run", "build": "next build"}, path="apps/web")
+        gates, _ = npm_verification_gates(self.root, "web", "apps/web")
+        self.assertEqual(["npm", "--prefix", "apps/web", "run", "test"], gates["component"][-1]["command"])
+        self.assertEqual(
+            [["npm", "run", "test"], ["npm", "--prefix", "apps/web", "run", "build"]],
+            [check["command"] for check in gates["final"]],
+        )
 
 
 if __name__ == "__main__":

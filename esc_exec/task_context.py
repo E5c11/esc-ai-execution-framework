@@ -7,6 +7,7 @@ from esc_exec.architecture_lookup import load_architecture_index, resolve_archit
 from esc_exec.indexing import INDEX_FILE, validate_indexes
 from esc_exec.json_io import load_json, write_json
 from esc_exec.manifests import ESC_AI_DIR, merged_testing, repository_manifest_path, resolve_testing_fact
+from esc_exec.npm import npm_verification_gates
 from esc_exec.registry import resolve_route
 from esc_exec.yaml_io import load_yaml, write_yaml
 from esc_exec.model import ManifestState
@@ -217,6 +218,47 @@ def generate_gradle_verification_profile(repository: Path, component_id: str) ->
     paths["report_profile"] = report_profile_path.name
     write_yaml(manifest_path, manifest)
     return profile_path
+
+
+def generate_npm_verification_profile(repository: Path, component_id: str) -> Path:
+    """Write ``esc-verification-profile.yaml`` for an npm component from its ``package.json`` scripts."""
+    root_index = load_json(repository / ESC_AI_DIR / INDEX_FILE)
+    component = next((item for item in root_index["components"] if item["id"] == component_id), None)
+    if not component:
+        raise ValueError(f"component is not in repository index: {component_id}")
+    manifest_path = repository / component["manifest"]
+    manifest = load_yaml(manifest_path)
+    if manifest["build"]["system"] != "npm":
+        raise ValueError(f"component {component_id} is not an npm component")
+    profile_path = manifest_path.parent / "esc-verification-profile.yaml"
+    if profile_path.exists():
+        raise ValueError(f"verification profile already exists: {profile_path}")
+    gates, notes = npm_verification_gates(repository, component_id, manifest["component"]["path"])
+    profile: dict[str, Any] = {
+        "schema_version": 1,
+        "profile": {"id": f"{component_id}-verification", "component": component_id},
+        "gates": gates,
+    }
+    if notes:
+        profile["profile"]["notes"] = notes
+    write_yaml(profile_path, profile)
+    manifest.setdefault("paths", {})["verification_profile"] = profile_path.name
+    write_yaml(manifest_path, manifest)
+    return profile_path
+
+
+def generate_verification_profile(repository: Path, component_id: str) -> Path:
+    """Generate the verification profile for whichever build system the component declares."""
+    root_index = load_json(repository / ESC_AI_DIR / INDEX_FILE)
+    component = next((item for item in root_index["components"] if item["id"] == component_id), None)
+    if not component:
+        raise ValueError(f"component is not in repository index: {component_id}")
+    system = load_yaml(repository / component["manifest"])["build"]["system"]
+    if system == "gradle":
+        return generate_gradle_verification_profile(repository, component_id)
+    if system == "npm":
+        return generate_npm_verification_profile(repository, component_id)
+    raise ValueError(f"automatic verification-profile generation supports gradle and npm, not {system!r}")
 
 
 def build_verification_plan(repository: Path, task_path: Path, output: Path) -> dict[str, Any]:

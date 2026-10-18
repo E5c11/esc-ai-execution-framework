@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
+from typing import Any
 
 from esc_exec.yaml_io import load_yaml
 
@@ -182,3 +184,107 @@ def npm_component_structure(root: Path, relative: Path) -> dict[str, str]:
             if (component / name).is_dir():
                 paths[f"source_{name}"] = name
     return paths
+
+
+_TYPECHECK_SCRIPTS = ("typecheck", "type-check", "tsc")
+
+
+def detect_package_manager(component_root: Path, repository_root: Path) -> str:
+    """The package manager a project's lockfile names; ``npm`` when none is present."""
+    for directory in (component_root, repository_root):
+        if (directory / "pnpm-lock.yaml").is_file():
+            return "pnpm"
+        if (directory / "yarn.lock").is_file():
+            return "yarn"
+        if (directory / "bun.lock").is_file() or (directory / "bun.lockb").is_file():
+            return "bun"
+        if (directory / "package-lock.json").is_file():
+            return "npm"
+    return "npm"
+
+
+def _run_script(manager: str, component_path: str, script: str, extra: list[str] | None = None) -> list[str]:
+    """``<manager> run <script> [args]`` in the component's directory."""
+    flags = {"npm": ["--prefix"], "pnpm": ["--dir"], "yarn": ["--cwd"], "bun": ["--cwd"]}[manager]
+    command = [manager] if component_path in {"", "."} else [manager, *flags, component_path]
+    command += ["run", script]
+    if extra:
+        command += ["--", *extra] if manager == "npm" else list(extra)
+    return command
+
+
+def _exec_tool(manager: str, tool: str, *arguments: str) -> list[str]:
+    prefix = {"npm": ["npx", "--no-install"], "pnpm": ["pnpm", "exec"], "yarn": ["yarn"], "bun": ["bunx"]}[manager]
+    return [*prefix, tool, *arguments]
+
+
+def _test_runner_arguments(script: str) -> list[str]:
+    """A bare ``vitest`` watches and never exits; verification needs a run that ends."""
+    if re.search(r"\bvitest\b", script) and not re.search(r"(^|\s)(run|--run|--watch[= ]false)(\s|$)", script):
+        return ["run"]
+    return []
+
+
+def npm_verification_gates(
+    repository_root: Path, component_id: str, component_path: str,
+) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    """The four progressive gates for an npm component, built from its own ``package.json`` scripts.
+
+    Fails closed: a component with no ``test`` script raises, because a profile whose test gate is empty
+    would report "verified" for code nothing ran. A missing type-check, lint or build is recorded in the
+    returned notes instead, since a project may legitimately have no such step, but the reader must see
+    that nothing checks it.
+    """
+    component_root = repository_root / component_path
+    manifest = _read_json(component_root / "package.json")
+    scripts = manifest.get("scripts") if isinstance(manifest.get("scripts"), dict) else {}
+    if "test" not in scripts:
+        raise ValueError(
+            f"{component_id}: package.json has no `test` script, so there is nothing to verify; "
+            "add one (and keep it non-interactive) before generating a verification profile"
+        )
+    manager = detect_package_manager(component_root, repository_root)
+    path = component_path or "."
+    notes: list[str] = []
+    runner = _test_runner_arguments(str(scripts["test"]))
+    component_checks: list[dict[str, Any]] = []
+
+    typecheck = next((name for name in _TYPECHECK_SCRIPTS if name in scripts), None)
+    dependencies: dict[str, Any] = {}
+    for section in ("devDependencies", "dependencies"):
+        if isinstance(manifest.get(section), dict):
+            dependencies.update(manifest[section])
+    if typecheck:
+        component_checks.append({"id": f"{component_id}-typecheck", "command": _run_script(manager, path, typecheck)})
+    elif path == "." and (component_root / "tsconfig.json").is_file() and "typescript" in dependencies:
+        component_checks.append({"id": f"{component_id}-typecheck", "command": _exec_tool(manager, "tsc", "--noEmit")})
+    elif (component_root / "tsconfig.json").is_file():
+        notes.append("no `typecheck` script: types are not verified (add one, or rely on `build` in the final gate)")
+
+    if "lint" in scripts:
+        component_checks.append({"id": f"{component_id}-lint", "command": _run_script(manager, path, "lint")})
+    else:
+        notes.append("no `lint` script: linting is not verified (`next build` does not lint from Next.js 16)")
+
+    component_checks.append({"id": f"{component_id}-tests", "command": _run_script(manager, path, "test", runner or None)})
+
+    final_checks: list[dict[str, Any]] = []
+    root_scripts = _read_json(repository_root / "package.json").get("scripts")
+    if path != "." and isinstance(root_scripts, dict) and "test" in root_scripts:
+        final_checks.append({"id": "repository-tests", "command": _run_script(manager, ".", "test")})
+    if "build" in scripts:
+        final_checks.append({"id": f"{component_id}-build", "command": _run_script(manager, path, "build")})
+    else:
+        notes.append("no `build` script: the final gate verifies nothing beyond the tests")
+
+    gates = {
+        "focused": [{
+            "id": f"{component_id}-focused-tests",
+            "command": _run_script(manager, path, "test", [*runner, "{test_filter}"]),
+            "requires": ["test_filter"],
+        }],
+        "component": component_checks,
+        "impact": [],
+        "final": final_checks,
+    }
+    return gates, notes

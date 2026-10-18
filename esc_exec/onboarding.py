@@ -18,7 +18,7 @@ from esc_exec.manifests import (
 )
 from esc_exec.npm import detect_npm_frameworks_and_targets
 from esc_exec.registry import resolve_route
-from esc_exec.task_context import generate_gradle_verification_profile
+from esc_exec.task_context import generate_verification_profile
 from esc_exec.workflow_bootstrap import INSTRUCTIONS_PATH, bootstrap_workflow_inheritance
 from esc_exec.yaml_io import load_yaml, write_yaml
 
@@ -498,6 +498,7 @@ def apply_onboarding_answers(
 
     stub_warnings: dict[str, list[str]] = {}
     missing_warnings: dict[str, list[str]] = {}
+    skipped_verification_profiles: dict[str, str] = {}
     architecture_index = None
     if registry_path is not None:
         try:
@@ -518,11 +519,18 @@ def apply_onboarding_answers(
             if missing:
                 missing_warnings[component_id] = missing
 
-        if manifest.get("build", {}).get("system") == "gradle":
+        if manifest.get("build", {}).get("system") in {"gradle", "npm"}:
             verification_profile_path = manifest_path.parent / "esc-verification-profile.yaml"
             if not verification_profile_path.is_file():
-                generate_gradle_verification_profile(root, component_id)
-                written.append(verification_profile_path)
+                try:
+                    generate_verification_profile(root, component_id)
+                    written.append(verification_profile_path)
+                except ValueError as exc:
+                    if manifest["build"]["system"] != "npm":
+                        raise
+                    # An npm component with no `test` script cannot be verified. Say so, write nothing, and
+                    # let `verification plan` fail closed later rather than ship a gate that runs no tests.
+                    skipped_verification_profiles[component_id] = str(exc)
 
         architecture_profile_path = manifest_path.parent / "esc-architecture-profile.yaml"
         if not architecture_profile_path.is_file():
@@ -544,5 +552,6 @@ def apply_onboarding_answers(
         "empty_profile_id_suggestions": empty_profile_id_suggestions,
         "stub_documents": stub_warnings,
         "missing_documents": missing_warnings,
+        "skipped_verification_profiles": skipped_verification_profiles,
         "workflow_inheritance": workflow_inheritance,
     }

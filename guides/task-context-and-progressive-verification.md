@@ -36,6 +36,20 @@ esc-exec verification profile generate ampm-backend content
 esc-exec index generate ampm-backend
 ```
 
+npm components (`build.system: npm`) get a profile built from the component's own
+`package.json` scripts: `esc-exec verification profile generate <repository> <component>`
+picks the generator from the manifest. The focused gate runs the `test` script with a
+`{test_filter}` argument; the component gate runs `typecheck` (or `tsc --noEmit` when
+TypeScript is installed), `lint` and `test`; the final gate runs the `build` script, preceded
+by the repository's `test` script for a workspace member. The package manager is read from
+the lockfile (`pnpm`, `yarn`, `bun`, else `npm`), a workspace member runs in its own
+directory, and a bare `vitest` script is run as `vitest run` so it ends. A component with no
+`test` script gets no profile (onboarding reports it under `skipped_verification_profiles`),
+because a test gate that runs nothing would report "verified". A missing `lint`, `typecheck`
+or `build` is written to `profile.notes` so the gap is visible; Next.js 16 removed
+`next lint` and `next build` no longer lints, so a project without a `lint` script has
+unlinted code that every gate passes.
+
 Generation derives Gradle task names from the component manifest. It does not invent a
 focused test selector or dependency impact. The focused gate therefore contains a
 `{test_filter}` input and is marked `input-required`; impact remains `not-applicable`

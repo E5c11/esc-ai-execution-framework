@@ -15,9 +15,10 @@ from esc_exec.registry import (
     read_registry, resolve_route, validate_registry,
 )
 from esc_exec.reporting import summarize_junit
-from esc_exec.task_context import build_task_context, build_verification_plan, generate_gradle_verification_profile
+from esc_exec.task_context import build_task_context, build_verification_plan, generate_verification_profile
 from esc_exec.verification_execution import DEFAULT_TIMEOUT_SECONDS, execute_verification_plan
 from esc_exec.architecture import check_architecture, generate_architecture_profile
+from esc_exec.architecture_templates import TEMPLATES
 from esc_exec.checkpoints import create_checkpoint, inspect_checkpoint, update_checkpoint
 from esc_exec.dependencies import analyze_impact, generate_dependency_graph, validate_dependency_graph
 from esc_exec.measurement import compare_efficiency
@@ -138,6 +139,10 @@ def build_parser() -> argparse.ArgumentParser:
     architecture_profile_generate = architecture_profile_commands.add_parser("generate")
     architecture_profile_generate.add_argument("repository")
     architecture_profile_generate.add_argument("component")
+    architecture_profile_generate.add_argument(
+        "--template", choices=TEMPLATES,
+        help="Start from a template's rules instead of an empty profile",
+    )
     architecture_check = architecture_commands.add_parser("check")
     architecture_check.add_argument("repository")
     architecture_check.add_argument("component")
@@ -353,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 0
             if args.verification_command == "profile":
-                print(f"GENERATED  {generate_gradle_verification_profile(repository, args.component)}")
+                print(f"GENERATED  {generate_verification_profile(repository, args.component)}")
                 return 0
             if args.verification_command == "execute":
                 plan_document = load_json(args.plan)
@@ -374,9 +379,11 @@ def main(argv: list[str] | None = None) -> int:
         try:
             repository = _resolve_repository(args.repository, registry)
             if args.architecture_command == "profile":
-                print(f"GENERATED  {generate_architecture_profile(repository, args.component)}")
-                print("INCOMPLETE Author at least one stable architecture rule before checking.")
-                return 2
+                print(f"GENERATED  {generate_architecture_profile(repository, args.component, args.template)}")
+                if args.template is None:
+                    print("INCOMPLETE Author at least one stable architecture rule before checking.")
+                    return 2
+                return 0
             document = check_architecture(repository, args.component, args.output)
             totals = document["totals"]
             print(

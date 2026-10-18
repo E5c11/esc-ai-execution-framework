@@ -7,8 +7,13 @@ import re
 from typing import Any
 
 from esc_exec.indexing import INDEX_FILE
+from esc_exec.architecture_templates import profile_from_template
 from esc_exec.json_io import load_json, write_json
 from esc_exec.manifests import ESC_AI_DIR
+from esc_exec.ts_imports import (
+    EXCLUDED_DIRECTORIES, TS_SUFFIXES, glob_matches, is_test_file, load_tsconfig_paths,
+    module_specifiers, resolve_import,
+)
 from esc_exec.yaml_io import load_yaml, write_yaml
 
 
@@ -26,7 +31,13 @@ def _owned_path(root: Path, value: str, label: str) -> Path:
     return root / relative
 
 
-def generate_architecture_profile(repository: Path, component_id: str) -> Path:
+def generate_architecture_profile(repository: Path, component_id: str, template: str | None = None) -> Path:
+    """Write ``esc-architecture-profile.yaml`` for a component.
+
+    Without ``template`` the profile has no rules: dependency direction, legacy boundaries and required
+    conventions cannot be inferred safely, so the author writes them. With a ``template`` the profile
+    starts from that template's rules (see ``esc_exec.architecture_templates``).
+    """
     index = load_json(repository / ESC_AI_DIR / INDEX_FILE)
     component = next((item for item in index["components"] if item["id"] == component_id), None)
     if not component:
@@ -36,35 +47,121 @@ def generate_architecture_profile(repository: Path, component_id: str) -> Path:
     output = manifest_path.parent / "esc-architecture-profile.yaml"
     if output.exists():
         raise ValueError(f"architecture profile already exists: {output}")
-    write_yaml(output, {
+    document: dict[str, Any] = {
         "schema_version": 1,
         "profile": {"id": f"{component_id}-architecture", "component": component_id},
         "limits": {"max_violations_per_rule": 10, "max_evidence_chars": 200},
         "rules": [],
-    })
+    }
+    if template is not None:
+        document.update(profile_from_template(template, repository / component["path"]))
+    write_yaml(output, document)
     manifest.setdefault("paths", {})["architecture_profile"] = output.name
     write_yaml(manifest_path, manifest)
     return output
 
 
-def _violations(component_root: Path, rule: dict[str, Any]) -> list[dict[str, Any]]:
+_LEGACY_SUFFIXES = {".kt", ".java"}
+_VACUOUS = "rule scanned no source files, so it cannot have checked anything"
+
+
+def _expand_patterns(rule: dict[str, Any], pattern_sets: dict[str, Any]) -> dict[str, Any]:
+    """Replace each ``{name}`` entry in a rule's patterns with the profile's pattern set of that name."""
+    patterns = rule.get("patterns")
+    if not isinstance(patterns, list):
+        return rule
+    expanded: list[str] = []
+    for pattern in patterns:
+        if isinstance(pattern, str) and pattern.startswith("{") and pattern.endswith("}"):
+            values = pattern_sets.get(pattern[1:-1])
+            if not isinstance(values, list) or not values:
+                raise ValueError(f"rule {rule['id']} uses an unknown or empty pattern set: {pattern}")
+            expanded.extend(values)
+        else:
+            expanded.append(pattern)
+    return {**rule, "patterns": expanded}
+
+
+def _source_directories(component_root: Path, rule: dict[str, Any]) -> list[tuple[Path, Path]]:
+    """``(directory, unit)`` pairs. ``unit`` is the directory a root glob matched, which is the
+    "own feature" for ``except_own_feature``."""
+    roots = rule.get("source_roots")
+    if roots is None:
+        roots = [rule.get("source_root", "")]
+    if not isinstance(roots, list) or not roots:
+        raise ValueError(f"rule {rule['id']} requires an existing source_root and patterns")
+    directories: list[tuple[Path, Path]] = []
+    for value in roots:
+        pattern = _owned_path(component_root, value, "source_root")
+        matched = [pattern] if value == "" else sorted(component_root.glob(value))
+        directories.extend((path, path) for path in matched if path.is_dir())
+    if not directories and not rule.get("optional", False):
+        raise ValueError(f"rule {rule['id']} requires an existing source_root and patterns")
+    return directories
+
+
+def _excluded(relative: Path, rule: dict[str, Any], suffix: str) -> bool:
+    if suffix in _LEGACY_SUFFIXES:
+        return False
+    if any(part in EXCLUDED_DIRECTORIES for part in relative.parts):
+        return True
+    if not rule.get("include_tests", False) and is_test_file(relative):
+        return True
+    return any(glob_matches(pattern, relative.as_posix()) for pattern in rule.get("exclude", []))
+
+
+def _forbidden_imports(component_root: Path, rule: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    patterns = rule.get("patterns")
+    if not isinstance(patterns, list) or not patterns:
+        raise ValueError(f"rule {rule['id']} requires an existing source_root and patterns")
+    directories = _source_directories(component_root, rule)
+    if not directories:
+        # An optional layer folder that does not exist yet has nothing to violate. A rule that is not
+        # optional never gets here: it already failed above.
+        return [], 0
+    ts_paths = load_tsconfig_paths(component_root)
+    own_feature = bool(rule.get("except_own_feature", False))
+    violations: list[dict[str, Any]] = []
+    scanned: set[Path] = set()
+    for directory, unit in directories:
+        unit_relative = unit.relative_to(component_root).as_posix()
+        for path in sorted(directory.rglob("*")):
+            if path in scanned or not path.is_file() or path.suffix not in _LEGACY_SUFFIXES | TS_SUFFIXES:
+                continue
+            relative = path.relative_to(component_root)
+            if _excluded(relative, rule, path.suffix):
+                continue
+            scanned.add(path)
+            text = path.read_text(encoding="utf-8", errors="replace")
+            lines = text.splitlines()
+            if path.suffix in _LEGACY_SUFFIXES:
+                for line_number, line in enumerate(lines, start=1):
+                    stripped = line.strip()
+                    if not stripped.startswith("import "):
+                        continue
+                    imported = stripped[7:].split(" as ", 1)[0].strip().rstrip(";")
+                    if any(fnmatchcase(imported, pattern) for pattern in patterns):
+                        violations.append({"path": str(relative), "line": line_number, "evidence": stripped})
+                continue
+            for line_number, specifier in module_specifiers(text):
+                resolved = resolve_import(specifier, path, component_root, ts_paths)
+                candidates = [specifier] if resolved is None else [specifier, resolved]
+                if not any(glob_matches(pattern, candidate) for pattern in patterns for candidate in candidates):
+                    continue
+                if own_feature and resolved is not None and (resolved == unit_relative or resolved.startswith(unit_relative + "/")):
+                    continue
+                violations.append({"path": str(relative), "line": line_number, "evidence": lines[line_number - 1].strip()})
+    if not scanned:
+        violations.append({"path": ", ".join(str(value) for value in (rule.get("source_roots") or [rule.get("source_root", "")])), "evidence": _VACUOUS})
+    return violations, len(scanned)
+
+
+def _violations(component_root: Path, rule: dict[str, Any]) -> tuple[list[dict[str, Any]], int | None]:
+    """Violations for one rule, and how many source files it scanned (``None`` for rules that scan none)."""
     rule_type = rule["type"]
     violations: list[dict[str, Any]] = []
     if rule_type == "forbidden-import":
-        source_root = _owned_path(component_root, rule.get("source_root", ""), "source_root")
-        patterns = rule.get("patterns")
-        if not source_root.is_dir() or not isinstance(patterns, list) or not patterns:
-            raise ValueError(f"rule {rule['id']} requires an existing source_root and patterns")
-        for path in sorted(source_root.rglob("*")):
-            if path.suffix not in {".kt", ".java"} or not path.is_file():
-                continue
-            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-                stripped = line.strip()
-                if not stripped.startswith("import "):
-                    continue
-                imported = stripped[7:].split(" as ", 1)[0].strip().rstrip(";")
-                if any(fnmatchcase(imported, pattern) for pattern in patterns):
-                    violations.append({"path": str(path.relative_to(component_root)), "line": line_number, "evidence": stripped})
+        return _forbidden_imports(component_root, rule)
     elif rule_type == "forbidden-path":
         patterns = rule.get("patterns")
         if not isinstance(patterns, list) or not patterns:
@@ -82,7 +179,7 @@ def _violations(component_root: Path, rule: dict[str, Any]) -> list[dict[str, An
                 violations.append({"path": value, "evidence": "required path is missing"})
     else:
         raise ValueError(f"unsupported architecture rule type: {rule_type}")
-    return violations
+    return violations, None
 
 
 def check_architecture(repository: Path, component_id: str, output: Path) -> dict[str, Any]:
@@ -118,19 +215,23 @@ def check_architecture(repository: Path, component_id: str, output: Path) -> dic
     # component["path"] -- completely independent of where the manifest bundle
     # itself is stored (manifest_path.parent, now .esc-ai/components/<id>/).
     component_root = repository / component["path"]
+    pattern_sets = profile.get("pattern_sets") or {}
     results = []
     for rule in sorted(rules, key=lambda item: item["id"]):
-        all_violations = _violations(component_root, rule)
+        all_violations, files_scanned = _violations(component_root, _expand_patterns(rule, pattern_sets))
         included = []
         for violation in all_violations[:max_violations]:
             included.append({**violation, "evidence": violation["evidence"][:max_evidence]})
-        results.append({
+        result = {
             "rule_id": rule["id"],
             "description": rule["description"],
             "status": "failed" if all_violations else "passed",
             "violations": included,
             "violations_omitted": len(all_violations) - len(included),
-        })
+        }
+        if files_scanned is not None:
+            result["files_scanned"] = files_scanned
+        results.append(result)
     failed = sum(result["status"] == "failed" for result in results)
     total_violations = sum(len(result["violations"]) + result["violations_omitted"] for result in results)
     included = sum(len(result["violations"]) for result in results)

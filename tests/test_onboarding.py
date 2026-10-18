@@ -502,6 +502,23 @@ class NpmOnboardingTests(unittest.TestCase):
             "Turns free-text complaints into structured tickets.", manifest["component"]["purpose"],
         )
         self.assertFalse((manifest_path.parent / "esc-verification-profile.yaml").exists())
+        # No `test` script, so there is nothing to verify: it is reported, not silently written empty.
+        self.assertIn("garage-triage", result["skipped_verification_profiles"])
+        self.assertIn("no `test` script", result["skipped_verification_profiles"]["garage-triage"])
+
+    def test_apply_generates_a_verification_profile_for_an_npm_component_with_a_test_script(self):
+        (self.root / "package.json").write_text(
+            json.dumps({"name": "garage-triage", "scripts": {"test": "vitest run", "lint": "eslint ."}}), encoding="utf-8",
+        )
+        proposal = analyze_repository(self.root)
+        answers = {"garage-triage": {"purpose": "Turns free-text complaints into structured tickets."}}
+        result = apply_onboarding_answers(self.root, proposal, answers)
+        manifest_path = component_manifest_path(self.root, "garage-triage")
+        self.assertTrue((manifest_path.parent / "esc-verification-profile.yaml").is_file())
+        self.assertEqual({}, result["skipped_verification_profiles"])
+        self.assertEqual(
+            "esc-verification-profile.yaml", load_yaml(manifest_path)["paths"]["verification_profile"],
+        )
 
 
 class SingleModuleGradleOnboardingTests(unittest.TestCase):

@@ -6,6 +6,10 @@ additionalProperties: false
 required: [schema_version, profile, limits, rules]
 properties:
   schema_version: {const: 1}
+  pattern_sets:
+    description: Named pattern lists. A rule's patterns may contain "{name}" to include a set.
+    type: object
+    additionalProperties: {type: array, minItems: 1, items: {type: string, minLength: 1}}
   profile:
     type: object
     additionalProperties: false
@@ -32,5 +36,23 @@ properties:
         type: {enum: [forbidden-import, forbidden-path, required-path]}
         description: {type: string, minLength: 1}
         source_root: {type: string, minLength: 1}
+        source_roots:
+          description: Directory globs, relative to the component. A glob that matches a directory per feature (features/*) makes each match one unit for except_own_feature.
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1}
+        exclude:
+          description: File globs, relative to the component, that the rule does not scan.
+          type: array
+          items: {type: string, minLength: 1}
+        include_tests:
+          description: Scan test files (*.test.*, *.spec.*, *.contract.*, __tests__). Off by default, because tests build their own graphs.
+          type: boolean
+        except_own_feature:
+          description: An import that resolves inside the same directory the root glob matched is not a violation.
+          type: boolean
+        optional:
+          description: A root glob that matches no directory passes instead of raising. For layer folders that exist only once the feature needs them.
+          type: boolean
         patterns: {type: array, minItems: 1, items: {type: string, minLength: 1}}
         paths: {type: array, minItems: 1, items: {type: string, minLength: 1}}

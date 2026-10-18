@@ -15,6 +15,8 @@ from esc_exec.task_context import (
     build_task_context,
     build_verification_plan,
     generate_gradle_verification_profile,
+    generate_npm_verification_profile,
+    generate_verification_profile,
 )
 from esc_exec.yaml_io import load_yaml, write_yaml
 
@@ -276,3 +278,75 @@ class TaskContextTests(unittest.TestCase):
         generate_gradle_verification_profile(self.root, "content")
         report_profile = load_yaml(report_profile_path)
         self.assertEqual("hand-authored", report_profile["profile"]["id"])
+
+
+class NpmVerificationProfileTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        (self.root / "package.json").write_text(
+            json.dumps({"name": "web", "scripts": {"test": "vitest run", "lint": "eslint .", "build": "next build"}}),
+            encoding="utf-8",
+        )
+        write_yaml(repository_manifest_path(self.root), {
+            "schema_version": 1,
+            "repository": {"id": "repo", "type": "npm-package", "purpose": "test"},
+            "components": [{"id": "web", "manifest": component_manifest_relative_path("web")}],
+        })
+        write_yaml(component_manifest_path(self.root, "web"), {
+            "schema_version": 1,
+            "component": {"id": "web", "type": "npm-package", "path": ".", "purpose": "web"},
+            "build": {"system": "npm"},
+            "paths": {"source": "src"},
+        })
+        generate_indexes(self.root)
+        generate_dependency_graph(self.root)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def test_generates_a_profile_the_plan_builder_accepts(self):
+        profile_path = generate_verification_profile(self.root, "web")
+        self.assertEqual("esc-verification-profile.yaml", profile_path.name)
+        manifest = load_yaml(component_manifest_path(self.root, "web"))
+        self.assertEqual("esc-verification-profile.yaml", manifest["paths"]["verification_profile"])
+        generate_indexes(self.root)
+        generate_dependency_graph(self.root)
+        task = self.root / "task.yaml"
+        write_yaml(task, {
+            "schema_version": 1,
+            "task": {"id": "t", "title": "t", "objective": "o", "repository": "repo", "status": "ready"},
+            "scope": {"components": ["web"], "paths": ["src/a.ts"]},
+            "completion_conditions": ["tests pass"],
+            "references": [],
+        })
+        plan_path = self.root / "plan.json"
+        plan = build_verification_plan(self.root, task, plan_path)
+        self.assertEqual(
+            ["input-required", "ready", "not-applicable", "ready"], [gate["status"] for gate in plan["gates"]],
+        )
+        self.assertEqual(ManifestState.VALID, validate_contract("verification-plan", plan_path).state)
+
+    def test_records_what_is_not_verified(self):
+        (self.root / "package.json").write_text(json.dumps({"name": "web", "scripts": {"test": "vitest run"}}), encoding="utf-8")
+        profile = load_yaml(generate_npm_verification_profile(self.root, "web"))
+        notes = profile["profile"]["notes"]
+        self.assertTrue(any("`lint`" in note for note in notes))
+        self.assertTrue(any("`build`" in note for note in notes))
+
+    def test_refuses_a_component_with_no_test_script(self):
+        (self.root / "package.json").write_text(json.dumps({"name": "web", "scripts": {}}), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "no `test` script"):
+            generate_verification_profile(self.root, "web")
+        self.assertFalse((component_manifest_path(self.root, "web").parent / "esc-verification-profile.yaml").exists())
+
+    def test_the_dispatcher_rejects_an_unsupported_build_system(self):
+        manifest = load_yaml(component_manifest_path(self.root, "web"))
+        manifest["build"]["system"] = "make"
+        write_yaml(component_manifest_path(self.root, "web"), manifest)
+        with self.assertRaisesRegex(ValueError, "gradle and npm"):
+            generate_verification_profile(self.root, "web")
+
+
+if __name__ == "__main__":
+    unittest.main()
