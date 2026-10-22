@@ -10,6 +10,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+from esc_exec.yaml_io import load_yaml
+
 
 WEB_APP = "web-app"
 TEMPLATES = (WEB_APP,)
@@ -69,6 +73,57 @@ def _grab_bag_patterns(base: str) -> list[str]:
     return patterns
 
 
+def declared_runtime(component_root: Path) -> str | None:
+    """``frameworks.runtime`` from the component's ``context/project-profile.yaml``, or ``None`` if undeclared."""
+    path = component_root / "context" / "project-profile.yaml"
+    if not path.is_file():
+        return None
+    try:
+        document = load_yaml(path)
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
+    frameworks = document.get("frameworks") if isinstance(document, dict) else None
+    runtime = frameworks.get("runtime") if isinstance(frameworks, dict) else None
+    return runtime if isinstance(runtime, str) else None
+
+
+def _static_export_rules(base: str) -> list[dict[str, Any]]:
+    """Rules for a ``runtime: static-export`` project: what the export cannot run, and the setting it needs.
+
+    Mechanical halves of ``PLAT-WEB-NEXT-STATIC-CONFIG-01`` only: the image-loader clause, ``generateStaticParams``,
+    route handlers, browser-API use and the direct-load check stay with a reviewer.
+    """
+    roots = [f"{base}{name}" for name in ("app", "features", "shared", "composition", "data")]
+    return [
+        {
+            "id": "web.static-export-no-request-apis",
+            "type": "forbidden-import",
+            "optional": True,
+            "description": (
+                "PLAT-WEB-NEXT-STATIC-CONFIG-01: a static export has no request: nothing imports `next/headers` (cookies, "
+                "headers, draftMode) or `next/server` (proxy, NextRequest, NextResponse)."
+            ),
+            "source_roots": roots,
+            "patterns": ["next/headers", "next/server"],
+        },
+        {
+            "id": "web.static-export-no-server-actions",
+            "type": "forbidden-content",
+            "optional": True,
+            "description": "PLAT-WEB-NEXT-STATIC-CONFIG-01: a static export has no server, so no file carries a `'use server'` directive.",
+            "source_roots": roots,
+            "patterns": [r"""^[ \t]*(['"])use server\1"""],
+        },
+        {
+            "id": "web.static-export-output",
+            "type": "required-content",
+            "description": "PLAT-WEB-NEXT-STATIC-CONFIG-01: the Next.js configuration sets `output: 'export'`.",
+            "files": ["next.config.ts", "next.config.mts", "next.config.js", "next.config.mjs", "next.config.cjs"],
+            "patterns": [r"""\boutput\s*:\s*(['"])export\1"""],
+        },
+    ]
+
+
 def _web_app(component_root: Path) -> dict[str, Any]:
     base = source_base(component_root)
     features = f"{base}features/*"
@@ -82,6 +137,7 @@ def _web_app(component_root: Path) -> dict[str, Any]:
     ui_layers = [layer("components"), layer("hooks"), layer("useCases"), layer("domain")]
     # The server runtime's Server Actions are a layer of their own: a host that calls use cases, below the UI.
     hosts = [*ui_layers, layer("actions")]
+    static_export = _static_export_rules(base) if declared_runtime(component_root) == "static-export" else []
     return {
         "pattern_sets": {
             "provider-sdks": _provider_sdks(component_root),
@@ -209,6 +265,7 @@ def _web_app(component_root: Path) -> dict[str, Any]:
                 "patterns": ["{feature-internals}"],
                 "except_own_feature": True,
             },
+            *static_export,
         ],
     }
 

@@ -323,6 +323,93 @@ class TypeScriptArchitectureTests(unittest.TestCase):
         self.assertEqual({"features/faults/hooks/useFaults.ts"}, failed["web.server-graph-not-in-client-code"])
         self.assertEqual({"composition/server.ts"}, failed["web.server-graph-imports-server-only"])
 
+    STATIC_RULES = ("web.static-export-no-request-apis", "web.static-export-no-server-actions", "web.static-export-output")
+
+    def _static_export_project(self, runtime: str | None = "static-export") -> None:
+        if runtime is not None:
+            self._write("context/project-profile.yaml", f"project: web\nplatform: web\nframeworks:\n  ui: next\n  runtime: {runtime}\n")
+        self._write("next.config.ts", "const config = { output: 'export', images: { unoptimized: true } }\nexport default config\n")
+        self._write("src/app/page.tsx", "export default function P() { return null }\n")
+        self._write("src/features/feeds/domain/rate.ts", "export const rate = 1\n")
+        self._write("src/features/feeds/hooks/useFeeds.ts", "'use client'\nexport function useFeeds() { return 1 }\n")
+
+    def _template_results(self, name: str = "report.json") -> dict[str, dict]:
+        generate_architecture_profile(self.root, "web", template="web-app")
+        generate_indexes(self.root)
+        return {r["rule_id"]: r for r in check_architecture(self.root, "web", self.root / name)["results"]}
+
+    def test_static_export_template_passes_a_compliant_project(self):
+        self._static_export_project()
+        results = self._template_results()
+        for rule_id in self.STATIC_RULES:
+            self.assertEqual("passed", results[rule_id]["status"], rule_id)
+        self.assertGreater(results["web.static-export-no-server-actions"]["files_scanned"], 0)
+        self.assertEqual(1, results["web.static-export-output"]["files_scanned"])
+
+    def test_static_export_template_catches_request_apis_server_actions_and_a_missing_output_setting(self):
+        self._static_export_project()
+        self._write("src/features/feeds/data/session.ts", "import { cookies } from 'next/headers'\nexport const s = () => cookies()\n")
+        self._write("src/app/proxy.ts", "import { NextResponse } from 'next/server'\nexport const proxy = () => NextResponse.next()\n")
+        self._write("src/features/feeds/actions/save.ts", "// header\n'use server'\nexport async function save() {}\n")
+        self._write("src/app/inline.ts", "export async function save() {\n  \"use server\"\n}\n")
+        self._write("next.config.ts", "export default { images: { unoptimized: true } }\n")
+        results = self._template_results()
+        requests = results["web.static-export-no-request-apis"]
+        self.assertEqual("failed", requests["status"])
+        self.assertEqual({"src/features/feeds/data/session.ts", "src/app/proxy.ts"}, {v["path"] for v in requests["violations"]})
+        actions = results["web.static-export-no-server-actions"]["violations"]
+        self.assertEqual({"src/features/feeds/actions/save.ts": 2, "src/app/inline.ts": 2}, {v["path"]: v["line"] for v in actions})
+        output = results["web.static-export-output"]
+        self.assertEqual("failed", output["status"])
+        self.assertEqual(["next.config.ts"], [v["path"] for v in output["violations"]])
+        self.assertIn("does not match", output["violations"][0]["evidence"])
+
+    def test_static_export_rules_read_code_not_comments_or_strings(self):
+        self._static_export_project()
+        self._write("src/app/notes.ts", "// import { cookies } from 'next/headers'\n/* 'use server' */\nexport const note = \"say 'use server' here\"\n")
+        self._write("next.config.ts", "// output: 'export'\nexport default { images: { unoptimized: true } }\n")
+        results = self._template_results()
+        self.assertEqual("passed", results["web.static-export-no-request-apis"]["status"])
+        self.assertEqual("passed", results["web.static-export-no-server-actions"]["status"])
+        self.assertEqual("failed", results["web.static-export-output"]["status"])  # a commented-out setting is not a setting
+
+    def test_static_export_rules_are_not_emitted_for_the_server_runtime(self):
+        self._static_export_project("server")
+        self._write("src/features/feeds/actions/save.ts", "'use server'\nimport { cookies } from 'next/headers'\nexport async function save() { return cookies() }\n")
+        (self.web / "next.config.ts").unlink()
+        self.assertFalse(set(self.STATIC_RULES) & set(self._template_results()))
+
+    def test_static_export_rules_are_not_emitted_when_the_runtime_is_undeclared(self):
+        self._static_export_project(None)
+        self._write("src/features/feeds/actions/save.ts", "'use server'\nexport async function save() {}\n")
+        self.assertFalse(set(self.STATIC_RULES) & set(self._template_results()))
+
+    def _recheck(self, rule):
+        """Check one rule, rewriting the profile after the first call (a profile is generated once)."""
+        profile_path = self.root / ".esc-ai/components/web/esc-architecture-profile.yaml"
+        if not profile_path.exists():
+            return self._check([rule])["results"][0]
+        profile = load_yaml(profile_path)
+        profile["rules"] = [rule]
+        write_yaml(profile_path, profile)
+        generate_indexes(self.root)
+        return check_architecture(self.root, "web", self.root / "again.json")["results"][0]
+
+    def test_content_rules_fail_closed_and_reject_a_bad_regex(self):
+        self._write("src/app/page.tsx", "export default function P() { return null }\n")
+        forbidden = {"id": "web.no-eval", "type": "forbidden-content", "description": "x", "source_roots": ["src/app"], "patterns": [r"\beval\("]}
+        self.assertEqual("passed", self._recheck(forbidden)["status"])
+        self._write("src/app/page.tsx", "export const x = eval('1')\n")
+        self.assertEqual("failed", self._recheck(forbidden)["status"])
+        self.assertEqual("failed", self._recheck({**forbidden, "source_roots": ["src/composition"]})["status"])  # no files scanned
+        with self.assertRaisesRegex(ValueError, "invalid pattern"):
+            self._recheck({**forbidden, "patterns": ["("]})
+        required = {"id": "web.config", "type": "required-content", "description": "x", "files": ["next.config.ts"], "patterns": [r"output"]}
+        self.assertEqual("failed", self._recheck(required)["status"])  # no file: fails, not passes
+        self.assertEqual("passed", self._recheck({**required, "optional": True})["status"])
+        self._write("next.config.ts", "export default { output: 'export' }\n")
+        self.assertEqual("passed", self._recheck(required)["status"])
+
     def test_web_app_template_fails_when_the_layout_is_not_the_assumed_one(self):
         import shutil
         shutil.rmtree(self.web / "src")

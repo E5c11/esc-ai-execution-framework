@@ -12,7 +12,7 @@ from esc_exec.json_io import load_json, write_json
 from esc_exec.manifests import ESC_AI_DIR
 from esc_exec.ts_imports import (
     EXCLUDED_DIRECTORIES, TS_SUFFIXES, glob_matches, is_test_file, load_tsconfig_paths,
-    module_specifiers, resolve_import,
+    module_specifiers, resolve_import, strip_comments,
 )
 from esc_exec.yaml_io import load_yaml, write_yaml
 
@@ -184,6 +184,70 @@ def _required_imports(component_root: Path, rule: dict[str, Any]) -> tuple[list[
     return violations, len(matched)
 
 
+def _compiled(rule: dict[str, Any]) -> list[re.Pattern[str]]:
+    patterns = rule.get("patterns")
+    if not isinstance(patterns, list) or not patterns or not all(isinstance(pattern, str) for pattern in patterns):
+        raise ValueError(f"rule {rule['id']} requires patterns")
+    try:
+        return [re.compile(pattern, re.MULTILINE) for pattern in patterns]
+    except re.error as error:
+        raise ValueError(f"rule {rule['id']} has an invalid pattern: {error}") from error
+
+
+def _forbidden_content(component_root: Path, rule: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    """No source file under ``source_roots`` may contain text matching a regex in ``patterns``.
+
+    Comments are blanked first, so a pattern is matched against code only. For what an import check cannot
+    see, such as a ``'use server'`` directive.
+    """
+    patterns = _compiled(rule)
+    directories = _source_directories(component_root, rule)
+    if not directories:
+        return [], 0
+    violations: list[dict[str, Any]] = []
+    scanned: set[Path] = set()
+    for directory, _ in directories:
+        for path in sorted(directory.rglob("*")):
+            if path in scanned or not path.is_file() or path.suffix not in TS_SUFFIXES:
+                continue
+            relative = path.relative_to(component_root)
+            if _excluded(relative, rule, path.suffix):
+                continue
+            scanned.add(path)
+            text = path.read_text(encoding="utf-8", errors="replace")
+            lines = text.splitlines()
+            found: set[int] = set()
+            stripped = strip_comments(text)
+            for pattern in patterns:
+                found.update(stripped.count("\n", 0, match.start()) + 1 for match in pattern.finditer(stripped))
+            violations.extend(
+                {"path": str(relative), "line": line, "evidence": lines[line - 1].strip() if line <= len(lines) else ""}
+                for line in sorted(found)
+            )
+    if not scanned:
+        violations.append({"path": ", ".join(str(value) for value in (rule.get("source_roots") or [rule.get("source_root", "")])), "evidence": _VACUOUS})
+    return violations, len(scanned)
+
+
+def _required_content(component_root: Path, rule: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    """Every file the ``files`` globs match must contain text matching at least one regex in ``patterns``."""
+    files = rule.get("files")
+    if not isinstance(files, list) or not files:
+        raise ValueError(f"rule {rule['id']} requires files and patterns")
+    patterns = _compiled(rule)
+    matched = sorted({path for value in files for path in component_root.glob(_owned_path(component_root, value, "file").relative_to(component_root).as_posix()) if path.is_file()})
+    if not matched:
+        if rule.get("optional", False):
+            return [], 0
+        return [{"path": ", ".join(files), "evidence": _VACUOUS}], 0
+    violations: list[dict[str, Any]] = []
+    for path in matched:
+        stripped = strip_comments(path.read_text(encoding="utf-8", errors="replace"))
+        if not any(pattern.search(stripped) for pattern in patterns):
+            violations.append({"path": str(path.relative_to(component_root)), "evidence": "does not match " + " or ".join(rule["patterns"])})
+    return violations, len(matched)
+
+
 def _violations(component_root: Path, rule: dict[str, Any]) -> tuple[list[dict[str, Any]], int | None]:
     """Violations for one rule, and how many source files it scanned (``None`` for rules that scan none)."""
     rule_type = rule["type"]
@@ -192,6 +256,10 @@ def _violations(component_root: Path, rule: dict[str, Any]) -> tuple[list[dict[s
         return _forbidden_imports(component_root, rule)
     elif rule_type == "required-import":
         return _required_imports(component_root, rule)
+    elif rule_type == "forbidden-content":
+        return _forbidden_content(component_root, rule)
+    elif rule_type == "required-content":
+        return _required_content(component_root, rule)
     elif rule_type == "forbidden-path":
         patterns = rule.get("patterns")
         if not isinstance(patterns, list) or not patterns:
