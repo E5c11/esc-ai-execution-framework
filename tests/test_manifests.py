@@ -85,6 +85,17 @@ class ManifestTests(unittest.TestCase):
         generate_gradle_manifests(self.root)
         self.assertEqual("Owns the sample feature.", load_yaml(manifest_path)["component"]["purpose"])
 
+    def test_an_excluded_component_is_not_stale_but_an_unlisted_one_still_is(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        dropped = repository["components"].pop()
+        write_yaml(repository_path, repository)
+        self.assertEqual(ManifestState.STALE, validate_repository(self.root)[0].state)
+        repository["excluded_components"] = [dropped["id"]]
+        write_yaml(repository_path, repository)
+        self.assertNotEqual(ManifestState.STALE, validate_repository(self.root)[0].state)
+
     def test_detects_undeclared_component_as_stale(self):
         generate_gradle_manifests(self.root)
         repository_path = repository_manifest_path(self.root)

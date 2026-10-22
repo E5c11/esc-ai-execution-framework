@@ -460,7 +460,10 @@ def validate_repository(root: Path, registry_path: Path | None = None) -> list[V
     try:
         _, detected, _ = detect_build_system(root)
         detected_paths = {component_manifest_relative_path(component_id) for component_id, _ in detected}
-        missing = sorted(detected_paths - declared_paths)
+        # A component the owner excluded at onboarding is detected on purpose and has no manifest on purpose.
+        excluded = repository.get("excluded_components")
+        excluded_paths = {component_manifest_relative_path(str(component_id)) for component_id in excluded} if isinstance(excluded, list) else set()
+        missing = sorted(detected_paths - declared_paths - excluded_paths)
         if missing:
             results[0] = ValidationResult(
                 ManifestState.STALE,
