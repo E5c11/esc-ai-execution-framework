@@ -5,7 +5,7 @@ import unittest
 
 from esc_exec.contracts import validate_contract
 from esc_exec.model import ManifestState
-from esc_exec.verification_execution import classify_failure, execute_verification_plan
+from esc_exec.verification_execution import classify_failure, engine_command, execute_verification_plan
 
 
 def _ok_command() -> list[str]:
@@ -25,6 +25,19 @@ def _plan(gates: list[dict]) -> dict:
         "impact": {"graph": "esc-dependencies.json", "source_components": [], "consumer_components": []},
         "gates": gates,
     }
+
+
+class EngineCommandTests(unittest.TestCase):
+    def test_esc_exec_runs_with_the_interpreter_running_the_engine(self):
+        import sys
+        self.assertEqual(
+            [sys.executable, "-m", "esc_exec", "architecture", "check", "."],
+            engine_command(["esc-exec", "architecture", "check", "."]),
+        )
+
+    def test_any_other_command_is_left_alone(self):
+        self.assertEqual(["npm", "run", "lint"], engine_command(["npm", "run", "lint"]))
+        self.assertEqual([], engine_command([]))
 
 
 class ExecuteVerificationPlanTests(unittest.TestCase):

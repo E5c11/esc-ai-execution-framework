@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -135,6 +136,17 @@ def _locate_report(
     return str(output.relative_to(relative_to or workspace_root)), status_override
 
 
+def engine_command(command: list[str]) -> list[str]:
+    """A check that starts with ``esc-exec`` runs with the interpreter that is running this engine.
+
+    The executable is only on PATH when the orchestrator's virtualenv is active; a profile that checks the architecture
+    (``esc-exec architecture check . <component> <report>``) must not depend on how the run was launched.
+    """
+    if command and command[0] == "esc-exec":
+        return [sys.executable, "-m", "esc_exec", *command[1:]]
+    return command
+
+
 def execute_verification_plan(
     plan: dict[str, Any],
     workspace_root: Path,
@@ -185,7 +197,7 @@ def execute_verification_plan(
             stdout_file, stderr_file, stdout_relative, stderr_relative = _log_paths(
                 run_dir, relative_to, gate_id, check["id"]
             )
-            command = list(check["command"])
+            command = engine_command(list(check["command"]))
             started = time.monotonic()
             try:
                 completed = subprocess.run(
