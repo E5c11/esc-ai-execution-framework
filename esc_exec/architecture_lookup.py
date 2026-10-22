@@ -109,15 +109,19 @@ def architecture_prompt_lines(component: dict[str, Any]) -> list[str]:
     if not architecture:
         return []
     stub_ids = set(architecture.get("stubs", []))
+    # The agent works in the repository, so a framework-relative path cannot be opened (a plan run reported
+    # it could not find any of them). Give it the absolute path whenever the root is known.
+    framework_root = architecture.get("framework_root")
     lines = []
     for document in architecture.get("documents", []):
         doc_id = document["id"]
+        path = f"{framework_root}/{document['path']}" if framework_root else document["path"]
         suffix = (
             " -- still a stub, unreviewed: treat as a starting point, not a settled rule."
             if doc_id in stub_ids else "."
         )
         lines.append(
-            f"Also read {document['path']} ({doc_id}) for component {component['id']}'s "
+            f"Also read {path} ({doc_id}) for component {component['id']}'s "
             f"architecture guidance{suffix}"
         )
     return lines

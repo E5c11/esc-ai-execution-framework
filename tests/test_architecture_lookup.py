@@ -247,6 +247,18 @@ class ArchitectureLookupTests(unittest.TestCase):
         self.assertNotIn("stub", lines[0])
         self.assertIn("feature-orchestrators/backend/feature.md", lines[1])
 
+    def test_architecture_prompt_lines_give_an_absolute_path_when_the_framework_root_is_known(self):
+        component = {
+            "id": "content",
+            "architecture": {
+                "profile_ids": ["ORCH-BE-FEAT"],
+                "framework_root": "/opt/frameworks/architecture",
+                "documents": [{"id": "CORE-DI", "path": "core/dependency-inversion.md", "layer": "core"}],
+            },
+        }
+        lines = architecture_prompt_lines(component)
+        self.assertIn("Also read /opt/frameworks/architecture/core/dependency-inversion.md (CORE-DI)", lines[0])
+
     def test_architecture_prompt_lines_marks_stub_documents_distinctly(self):
         component = {
             "id": "content",

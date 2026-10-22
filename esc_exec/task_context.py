@@ -77,13 +77,16 @@ def build_task_context(
                     f"component {component_id} declares architecture.profile_ids but no "
                     "registry_path was provided to resolve the architecture framework"
                 )
+            framework_root = resolve_route(registry_path, "frameworks", ARCHITECTURE_FRAMEWORK_ID)
             if architecture_index is None:
-                framework_root = resolve_route(registry_path, "frameworks", ARCHITECTURE_FRAMEWORK_ID)
                 architecture_index = load_architecture_index(framework_root)
             documents, missing_docs = resolve_architecture_docs(profile_ids, architecture_index)
             stubs = stub_documents(documents)
             entry["architecture"] = {
                 "profile_ids": profile_ids,
+                # Document paths are relative to this root. The executing agent runs in the repository, not here,
+                # so the prompt needs the root to give it a path it can open.
+                "framework_root": str(framework_root),
                 "documents": [
                     {"id": document["id"], "path": document["path"], "layer": document.get("layer", "")}
                     for document in documents

@@ -83,6 +83,7 @@ class TaskContextTests(unittest.TestCase):
         architecture = context["routing"]["components"][0]["architecture"]
         self.assertEqual(["ORCH-BE-FEAT"], architecture["profile_ids"])
         self.assertEqual(["CORE-DI", "ORCH-BE-FEAT"], [doc["id"] for doc in architecture["documents"]])
+        self.assertEqual(str(self.root / "architecture-framework"), architecture["framework_root"])
         self.assertNotIn("missing", architecture)
         self.assertNotIn("stubs", architecture)
         self.assertEqual(ManifestState.VALID, validate_contract("task-context", output).state)
