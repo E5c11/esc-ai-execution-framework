@@ -1,6 +1,7 @@
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -26,6 +27,31 @@ class CliTests(unittest.TestCase):
             data = load_yaml(registry)
             self.assertIn("sample", data["repositories"])
             self.assertNotIn("repositorys", data)
+
+    def test_verification_execute_takes_a_run_dir_relative_to_the_repository(self):
+        import json
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "repositories.yaml"
+            repository = root / "repo"
+            repository.mkdir()
+            plan = root / "plan.json"
+            plan.write_text(json.dumps({
+                "schema_version": 1, "task_id": "t", "profiles": [],
+                "strategy": {"order": ["component"], "stop_on_failure": True},
+                "impact": {"graph": "esc-dependencies.json", "source_components": [], "consumer_components": []},
+                "gates": [{"id": "component", "status": "ready", "checks": [
+                    {"id": "ok", "command": [sys.executable, "-c", "pass"]},
+                ]}],
+            }), encoding="utf-8")
+            with redirect_stdout(StringIO()):
+                main(["--registry", str(registry), "route", "add", "repository", "sample", str(repository)])
+            with redirect_stdout(StringIO()) as out:
+                exit_code = main([
+                    "--registry", str(registry), "verification", "execute", "sample", str(plan), ".esc-ai/runs/t",
+                ])
+            self.assertEqual(0, exit_code, out.getvalue())
+            self.assertTrue((repository / ".esc-ai/runs/t/verification-result.json").is_file())
 
     def test_registry_validation_rejects_unknown_top_level_fields(self):
         with TemporaryDirectory() as temp:

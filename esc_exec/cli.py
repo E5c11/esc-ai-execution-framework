@@ -373,10 +373,11 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.verification_command == "execute":
                 plan_document = load_json(args.plan)
+                run_dir = args.run_dir if args.run_dir.is_absolute() else repository / args.run_dir
                 document = execute_verification_plan(
-                    plan_document, repository, args.run_dir, timeout_seconds=args.timeout_seconds,
+                    plan_document, repository, run_dir, timeout_seconds=args.timeout_seconds,
                 )
-                print(f"{document['status'].upper():<10} run={args.run_dir}")
+                print(f"{document['status'].upper():<10} run={run_dir}")
                 return 1 if document["status"] == "failed" else 0
             document = build_verification_plan(repository, args.task, args.output)
             statuses = ", ".join(f"{gate['id']}={gate['status']}" for gate in document["gates"])
