@@ -199,6 +199,25 @@ class ManifestTests(unittest.TestCase):
         results = validate_repository(self.root)
         self.assertNotEqual(ManifestState.INVALID, results[0].state)
 
+    def test_worktree_setup_valid_commands_are_accepted_and_absent_is_valid(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["worktree_setup"] = [["npm", "--prefix", "web", "ci"]]
+        write_yaml(repository_path, repository)
+        self.assertNotEqual(ManifestState.INVALID, validate_repository(self.root)[0].state)
+
+    def test_worktree_setup_must_be_argument_lists(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        for bad in ("npm ci", ["npm ci"], [[]], [["npm", ""]], [["npm", 1]]):
+            repository = load_yaml(repository_path)
+            repository["worktree_setup"] = bad
+            write_yaml(repository_path, repository)
+            results = validate_repository(self.root)
+            self.assertEqual(ManifestState.INVALID, results[0].state, bad)
+            self.assertTrue(any("worktree_setup" in message for message in results[0].messages), bad)
+
     def test_worktree_inherit_non_list_is_invalid(self):
         generate_gradle_manifests(self.root)
         repository_path = repository_manifest_path(self.root)

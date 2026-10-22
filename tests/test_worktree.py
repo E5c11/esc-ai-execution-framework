@@ -1,4 +1,5 @@
 import subprocess
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -6,7 +7,7 @@ import unittest
 from esc_exec.worktree import (
     WorktreeError, commit_worktree_changes, copy_inherited_files, diff_summary, ensure_excluded,
     ensure_worktree, finalize_worktree, has_commits_ahead, has_uncommitted_changes, merge_worktree,
-    remove_worktree, worktree_branch, worktree_path,
+    remove_worktree, run_worktree_setup, worktree_branch, worktree_path,
 )
 
 
@@ -187,6 +188,40 @@ class WorktreeTests(unittest.TestCase):
             repository = _init_repository(Path(temp))
             with self.assertRaises(WorktreeError):
                 merge_worktree(repository, "never-existed")
+
+
+class WorktreeSetupTests(unittest.TestCase):
+    def test_commands_run_in_the_worktree_in_order(self):
+        with TemporaryDirectory() as temp:
+            worktree = Path(temp)
+            run_worktree_setup(worktree, [
+                [sys.executable, "-c", "open('first','w').write('1')"],
+                [sys.executable, "-c", "import os; assert os.path.exists('first'); open('second','w').write('2')"],
+            ])
+            self.assertEqual("1", (worktree / "first").read_text())
+            self.assertEqual("2", (worktree / "second").read_text())
+
+    def test_no_commands_is_a_no_op(self):
+        with TemporaryDirectory() as temp:
+            run_worktree_setup(Path(temp), [])
+
+    def test_a_failing_command_stops_the_run_and_shows_its_output(self):
+        with TemporaryDirectory() as temp:
+            worktree = Path(temp)
+            with self.assertRaises(WorktreeError) as caught:
+                run_worktree_setup(worktree, [
+                    [sys.executable, "-c", "import sys; sys.stderr.write('registry unreachable'); sys.exit(3)"],
+                    [sys.executable, "-c", "open('never','w').write('x')"],
+                ])
+            self.assertIn("registry unreachable", str(caught.exception))
+            self.assertIn("(3)", str(caught.exception))
+            self.assertFalse((worktree / "never").exists())
+
+    def test_a_missing_program_is_reported_by_name(self):
+        with TemporaryDirectory() as temp:
+            with self.assertRaises(WorktreeError) as caught:
+                run_worktree_setup(Path(temp), [["definitely-not-a-program-xyz", "ci"]])
+            self.assertIn("definitely-not-a-program-xyz", str(caught.exception))
 
 
 if __name__ == "__main__":

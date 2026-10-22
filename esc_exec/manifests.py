@@ -100,6 +100,23 @@ def _worktree_inherit_errors(data: dict[str, Any]) -> list[str]:
     return []
 
 
+def _worktree_setup_errors(data: dict[str, Any]) -> list[str]:
+    """
+    Optional repository-manifest field: commands (argument lists) run in every fresh task worktree before the
+    agent starts -- for what git does not carry and a file copy cannot supply, such as installed dependencies
+    (``[["npm", "--prefix", "web", "ci"]]``). Absent is valid; present-but-malformed is not.
+    """
+    worktree_setup = data.get("worktree_setup")
+    if worktree_setup is None:
+        return []
+    if not isinstance(worktree_setup, list) or not all(
+        isinstance(command, list) and command and all(isinstance(part, str) and part.strip() for part in command)
+        for command in worktree_setup
+    ):
+        return ["worktree_setup must be a list of non-empty argument lists of non-empty strings"]
+    return []
+
+
 # Optional testing/quality-tooling facts on a repository or component manifest --
 # see plan/done/manifest-testing-facts-and-documentation-obligation.md. `common`
 # facts already cover every platform once declared; `platforms` entries add or
@@ -420,6 +437,7 @@ def validate_repository(root: Path, registry_path: Path | None = None) -> list[V
         components = []
     repo_messages.extend(_architecture_selector_errors(repository))
     repo_messages.extend(_worktree_inherit_errors(repository))
+    repo_messages.extend(_worktree_setup_errors(repository))
     repo_messages.extend(_testing_errors(repository))
     repo_messages.extend(_documentation_errors(repository))
     results.append(ValidationResult(

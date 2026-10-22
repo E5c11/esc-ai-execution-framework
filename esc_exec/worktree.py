@@ -106,6 +106,27 @@ def copy_inherited_files(repository: Path, worktree: Path, files: list[str]) -> 
     return copied
 
 
+def run_worktree_setup(worktree: Path, commands: list[list[str]], timeout_seconds: int = 900) -> None:
+    """
+    Runs the repository manifest's ``worktree_setup`` commands in a fresh worktree, in order, before the agent starts.
+
+    A worktree holds only what git tracks, so installed dependencies (``node_modules``) are missing: working around
+    that with a symlink into the live checkout lets tests run but breaks builds that refuse files outside the
+    workspace, and a later install can empty the live checkout's copy. A setup command that fails stops the run
+    here, with its output, instead of surfacing later as an unrelated verification failure.
+    """
+    for command in commands:
+        try:
+            completed = subprocess.run(command, cwd=worktree, capture_output=True, text=True, timeout=timeout_seconds)
+        except FileNotFoundError as exc:
+            raise WorktreeError(f"worktree setup command not found: {command[0]}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise WorktreeError(f"worktree setup timed out after {timeout_seconds}s: {' '.join(command)}") from exc
+        if completed.returncode != 0:
+            tail = (completed.stderr or completed.stdout).strip()[-800:]
+            raise WorktreeError(f"worktree setup failed ({completed.returncode}): {' '.join(command)}\n{tail}")
+
+
 def has_uncommitted_changes(worktree: Path) -> bool:
     return bool(_run(worktree, "status", "--porcelain").stdout.strip())
 

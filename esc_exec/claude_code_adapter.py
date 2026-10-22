@@ -32,6 +32,7 @@ from esc_exec.procedure_prompt import procedure_prompt_lines
 from esc_exec.task_context import build_task_context
 from esc_exec.worktree import (
     copy_inherited_files,
+    run_worktree_setup,
     ensure_worktree,
     finalize_worktree,
     worktree_branch,
@@ -78,6 +79,7 @@ class ClaudeCodeAdapter:
             # way on every task run.
             repository_manifest = load_yaml(repository_manifest_path(repository))
             copy_inherited_files(repository, execution_root, repository_manifest.get("worktree_inherit") or [])
+            run_worktree_setup(execution_root, repository_manifest.get("worktree_setup") or [])
         else:
             execution_root = repository
         context = build_task_context(repository, task_path, run_dir / "task-context.json", registry_path=self.registry_path)

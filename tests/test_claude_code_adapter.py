@@ -585,6 +585,45 @@ class WorktreeIsolationTests(unittest.TestCase):
             # keeps the worktree around for review.
             self.assertFalse(worktree_path(repository, "task-index-review").is_dir())
 
+    def test_worktree_setup_commands_run_in_the_worktree_before_the_agent_starts(self):
+        """A task worktree has no installed dependencies; the manifest's `worktree_setup` provides them first."""
+        import sys
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            repository = ClaudeCodeAdapterTests._repository(root)
+            git = lambda *args: subprocess.run(["git", "-C", str(repository), *args], capture_output=True, text=True, check=True)
+            git("init", "-q", "-b", "main")
+            git("config", "user.email", "test@example.com")
+            git("config", "user.name", "Test")
+            git("add", "-A")
+            git("commit", "-q", "-m", "initial")
+            manifest_path = repository_manifest_path(repository)
+            manifest = load_yaml(manifest_path)
+            manifest["worktree_setup"] = [[sys.executable, "-c", "open('installed.marker','w').write('ok')"]]
+            write_yaml(manifest_path, manifest)
+            generate_indexes(repository)
+            add_route(registry, "repositories", "ampm-backend", repository)
+
+            class SetupCheckingClient(FakeClaudeCodeClient):
+                def __init__(self):
+                    super().__init__()
+                    self.marker = None
+
+                def run(self, directory, prompt, tools, model=None, resume_session_id=None):
+                    marker = directory / "installed.marker"
+                    self.marker = marker.read_text(encoding="utf-8") if marker.is_file() else None
+                    return super().run(directory, prompt, tools, model, resume_session_id)
+
+            client = SetupCheckingClient()
+            ClaudeCodeAdapter(client, registry).execute(
+                examples / "task.yaml", self._worktree_workspace(root),
+                examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            self.assertEqual("ok", client.marker)
+
     def test_local_workspace_kind_is_unaffected_no_worktree_created(self):
         framework = Path(__file__).parents[1]
         examples = framework / "examples/contracts"
