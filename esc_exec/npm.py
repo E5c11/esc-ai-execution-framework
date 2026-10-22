@@ -122,6 +122,32 @@ def _resolve_workspace_pattern(root: Path, pattern: str) -> set[Path]:
     return matches
 
 
+def _firebase_package_members(root: Path) -> list[Path]:
+    """
+    Immediate child directories with their own package.json, for a repository whose
+    root has a `firebase.json` but no package.json -- the usual Firebase project
+    shape (`functions/`, `scripts/`, a web app), where each package is installed and
+    deployed on its own and a root workspace would hoist dependencies and disturb
+    `firebase deploy`. `firebase.json` is the marker so a bare directory with a stray
+    package.json is never mistaken for a repository. Hidden directories and
+    node_modules are skipped.
+    """
+    if not (root / "firebase.json").is_file() or (root / "package.json").exists():
+        return []
+    return sorted(
+        child.relative_to(root)
+        for child in root.iterdir()
+        if child.is_dir()
+        and not child.name.startswith(".")
+        and child.name != "node_modules"
+        and (child / "package.json").is_file()
+    )
+
+
+def has_firebase_package_layout(root: Path) -> bool:
+    return bool(_firebase_package_members(root))
+
+
 def detect_npm_repository(root: Path) -> tuple[str, list[tuple[str, Path]]]:
     """
     Single-component unless the root package.json (or, for pnpm,
@@ -132,9 +158,21 @@ def detect_npm_repository(root: Path) -> tuple[str, list[tuple[str, Path]]]:
     Gradle's `projectDir` remapping, there is nothing here a static parse can
     fail to resolve, so this never needs an AI fallback (see
     NpmAdapter.unresolved, which always returns []).
+
+    A root with `firebase.json` and no package.json is a multi-package Firebase
+    project: each immediate child with a package.json is a component and the
+    repository id is the directory name (see `_firebase_package_members`).
     """
     package_json = root / "package.json"
     if not package_json.is_file():
+        members = _firebase_package_members(root)
+        if members:
+            # No root manifest to name the repository: the directory name is the
+            # deterministic fallback, as it is for a root package.json without a name.
+            return root.name, [
+                (_package_name(_read_json(root / relative / "package.json"), relative.name), relative)
+                for relative in members
+            ]
         raise ValueError(f"No package.json found under {root}")
     root_package = _read_json(package_json)
     repository_id = _package_name(root_package, root.name)

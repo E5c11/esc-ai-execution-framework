@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from esc_exec.gradle import detect_gradle_repository, unresolved_gradle_includes
-from esc_exec.npm import detect_npm_repository
+from esc_exec.npm import detect_npm_repository, has_firebase_package_layout
 
 
 class BuildSystemAdapter(Protocol):
@@ -49,7 +49,7 @@ class NpmAdapter:
     component_type = "npm-package"
 
     def detects(self, root: Path) -> bool:
-        return (root / "package.json").exists()
+        return (root / "package.json").exists() or has_firebase_package_layout(root)
 
     def detect(self, root: Path) -> tuple[str, list[tuple[str, Path]]]:
         return detect_npm_repository(root)
