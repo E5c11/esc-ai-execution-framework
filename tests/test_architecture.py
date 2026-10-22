@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from esc_exec.architecture import check_architecture, generate_architecture_profile
+from esc_exec.architecture_templates import profile_from_template
 from esc_exec.contracts import validate_contract
 from esc_exec.indexing import generate_indexes
 from esc_exec.manifests import (
@@ -372,6 +373,15 @@ class TypeScriptArchitectureTests(unittest.TestCase):
         self.assertEqual("passed", results["web.static-export-no-request-apis"]["status"])
         self.assertEqual("passed", results["web.static-export-no-server-actions"]["status"])
         self.assertEqual("failed", results["web.static-export-output"]["status"])  # a commented-out setting is not a setting
+
+    def test_server_only_rules_are_left_out_of_a_static_export_and_kept_for_the_server_runtime(self):
+        server_only = {"web.actions-below-the-ui", "web.server-graph-not-in-client-code", "web.server-graph-imports-server-only"}
+        self._static_export_project()
+        static_ids = {rule["id"] for rule in profile_from_template("web-app", self.web)["rules"]}
+        self.assertEqual(set(), static_ids & server_only)
+        self._static_export_project("server")
+        server_ids = {rule["id"] for rule in profile_from_template("web-app", self.web)["rules"]}
+        self.assertEqual(server_only, server_ids & server_only)
 
     def test_static_export_rules_are_not_emitted_for_the_server_runtime(self):
         self._static_export_project("server")

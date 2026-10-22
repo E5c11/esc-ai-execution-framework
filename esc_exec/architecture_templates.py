@@ -270,8 +270,18 @@ def _web_app(component_root: Path) -> dict[str, Any]:
     }
 
 
+# Rules about a server graph and Server Actions. A static export has neither, so they would only ever pass over
+# nothing (and read as coverage that is not there).
+_SERVER_ONLY_RULES = frozenset({
+    "web.actions-below-the-ui", "web.server-graph-not-in-client-code", "web.server-graph-imports-server-only",
+})
+
+
 def profile_from_template(template: str, component_root: Path) -> dict[str, Any]:
     """The ``rules`` (and ``pattern_sets``) a profile starts with for ``template``."""
     if template == WEB_APP:
-        return _web_app(component_root)
+        profile = _web_app(component_root)
+        if declared_runtime(component_root) == "static-export":
+            profile["rules"] = [rule for rule in profile["rules"] if rule["id"] not in _SERVER_ONLY_RULES]
+        return profile
     raise ValueError(f"unknown architecture template: {template} (known: {', '.join(TEMPLATES)})")
