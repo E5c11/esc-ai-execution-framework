@@ -31,6 +31,26 @@ class AdaptersTests(unittest.TestCase):
             self.assertIsInstance(adapter, NpmAdapter)
             self.assertEqual("npm", adapter.name)
 
+    def test_detects_firebase_project_without_a_root_package_json(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "firebase.json").write_text("{}", encoding="utf-8")
+            for directory, name in (("functions", "proj-functions"), ("web", "proj-web")):
+                (root / directory).mkdir()
+                (root / directory / "package.json").write_text(json.dumps({"name": name}), encoding="utf-8")
+            repository_id, components, adapter = detect_build_system(root)
+            self.assertEqual(root.name, repository_id)
+            self.assertEqual([("proj-functions", Path("functions")), ("proj-web", Path("web"))], components)
+            self.assertIsInstance(adapter, NpmAdapter)
+
+    def test_stray_package_json_without_firebase_json_is_not_a_build(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "tools").mkdir()
+            (root / "tools" / "package.json").write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "No supported build-system adapter"):
+                detect_build_system(root)
+
     def test_raises_when_no_adapter_detects_a_build(self):
         with TemporaryDirectory() as temp:
             with self.assertRaisesRegex(ValueError, "No supported build-system adapter"):

@@ -32,6 +32,48 @@ class DetectNpmRepositoryTests(unittest.TestCase):
                 detect_npm_repository(Path(name))
 
 
+class FirebasePackageLayoutTests(unittest.TestCase):
+    def _package(self, path: Path, name: str | None = None) -> None:
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "package.json").write_text(json.dumps({"name": name} if name else {}), encoding="utf-8")
+
+    def test_each_child_package_is_a_component_and_the_directory_names_the_repository(self):
+        with TemporaryDirectory() as name:
+            root = Path(name)
+            (root / "firebase.json").write_text("{}", encoding="utf-8")
+            self._package(root / "functions", "p-functions")
+            self._package(root / "scripts")
+            repository_id, components = detect_npm_repository(root)
+            self.assertEqual(root.name, repository_id)
+            self.assertEqual([("p-functions", Path("functions")), ("scripts", Path("scripts"))], components)
+
+    def test_ignores_hidden_and_node_modules_directories_and_children_without_a_manifest(self):
+        with TemporaryDirectory() as name:
+            root = Path(name)
+            (root / "firebase.json").write_text("{}", encoding="utf-8")
+            self._package(root / "functions", "f")
+            self._package(root / ".cache")
+            self._package(root / "node_modules")
+            (root / "public").mkdir()
+            _, components = detect_npm_repository(root)
+            self.assertEqual([("f", Path("functions"))], components)
+
+    def test_firebase_json_without_any_child_package_still_raises(self):
+        with TemporaryDirectory() as name:
+            root = Path(name)
+            (root / "firebase.json").write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "No package.json"):
+                detect_npm_repository(root)
+
+    def test_a_root_package_json_keeps_the_existing_behaviour(self):
+        with TemporaryDirectory() as name:
+            root = Path(name)
+            (root / "firebase.json").write_text("{}", encoding="utf-8")
+            (root / "package.json").write_text(json.dumps({"name": "single"}), encoding="utf-8")
+            self._package(root / "functions", "f")
+            self.assertEqual(("single", [("single", Path("."))]), detect_npm_repository(root))
+
+
 class WorkspaceDetectionTests(unittest.TestCase):
     def _write_package(self, path: Path, name: str | None = None) -> None:
         path.mkdir(parents=True, exist_ok=True)
