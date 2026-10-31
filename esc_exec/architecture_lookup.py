@@ -184,9 +184,33 @@ def refine_profile_ids_for_style(
     return refined
 
 
+def applicable_profile_ids(
+    doc_ids: list[str], profile_doc_map: dict[str, Any] | None, platform: str | None, runtime: str | None,
+) -> list[str]:
+    """
+    Drop documents written for another platform or runtime than the component's, mirroring the
+    architecture framework's tools/lookup.py::applicable_extra_docs. The facts come from the map's
+    `applicability` section ({doc_id: {"platform": [...], "runtime": [...]}}); a document the section
+    does not list, a document without `runtime`, and an unknown platform or runtime are never filtered,
+    so a map from an older framework, or a component whose platform is not known, keeps every document.
+    """
+    applicability = (profile_doc_map or {}).get("applicability") or {}
+    kept: list[str] = []
+    for doc_id in doc_ids:
+        facts = applicability.get(doc_id) or {}
+        platforms = facts.get("platform") or []
+        if platform and platforms and "all" not in platforms and platform not in platforms:
+            continue
+        runtimes = facts.get("runtime") or []
+        if runtime and runtimes and runtime not in runtimes:
+            continue
+        kept.append(doc_id)
+    return kept
+
+
 def suggest_profile_ids(
     frameworks: dict[str, str], targets: list[str], profile_doc_map: dict[str, Any],
-    architecture_style: str | None = None,
+    architecture_style: str | None = None, platform: str | None = None,
 ) -> list[str]:
     """
     Suggest architecture.profile_ids from declared/detected frameworks and targets,
@@ -200,6 +224,10 @@ def suggest_profile_ids(
     can't tell `web-app` (forms/Server-Actions-heavy) apart from `web-content`
     (SSG/ISR-heavy) on its own. See `refine_profile_ids_for_style` for the actual
     refinement rule.
+
+    `platform` (the project profile's `platform`) and `frameworks["runtime"]`, when known, drop the
+    documents the map names for another platform or runtime (`applicable_profile_ids`): one framework
+    value such as `cloud: firebase` names a mobile and a web guide, and a component gets only its own.
     """
     suggested: list[str] = []
     target_map = profile_doc_map.get("targets", {})
@@ -212,4 +240,8 @@ def suggest_profile_ids(
         for doc_id in framework_map.get(field, {}).get(value, []):
             if doc_id not in suggested:
                 suggested.append(doc_id)
-    return refine_profile_ids_for_style(suggested, architecture_style, profile_doc_map)
+    refined = refine_profile_ids_for_style(suggested, architecture_style, profile_doc_map)
+    runtime = frameworks.get("runtime")
+    return applicable_profile_ids(
+        refined, profile_doc_map, platform, runtime if isinstance(runtime, str) else None,
+    )

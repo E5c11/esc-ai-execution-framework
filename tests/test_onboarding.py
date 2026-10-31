@@ -245,6 +245,7 @@ class OnboardingTests(unittest.TestCase):
         imported = import_project_profile(self.root)
         self.assertEqual({"network": "ktor"}, imported["frameworks"])
         self.assertEqual(["ios"], imported["targets"])
+        self.assertEqual("mobile", imported["platform"])
 
     def test_apply_answers_writes_purpose_and_is_idempotent_on_reanalysis(self):
         proposal = analyze_repository(self.root)

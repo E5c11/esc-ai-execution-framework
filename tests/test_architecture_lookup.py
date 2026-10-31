@@ -210,6 +210,57 @@ class ArchitectureLookupTests(unittest.TestCase):
         suggested = suggest_profile_ids({"ui": "next"}, [], profile_doc_map, architecture_style="web-content")
         self.assertEqual(["PLAT-WEB-NEXT"], suggested)
 
+    def test_a_document_for_another_platform_is_dropped(self):
+        profile_doc_map = {
+            "frameworks": {"cloud": {"firebase": ["PLAT-MOB-FIREBASE", "PLAT-WEB-NEXT-FIREBASE"]}},
+            "targets": {},
+            "applicability": {
+                "PLAT-MOB-FIREBASE": {"platform": ["mobile"]},
+                "PLAT-WEB-NEXT-FIREBASE": {"platform": ["web"]},
+            },
+        }
+        self.assertEqual(
+            ["PLAT-WEB-NEXT-FIREBASE"],
+            suggest_profile_ids({"cloud": "firebase"}, [], profile_doc_map, platform="web"),
+        )
+        self.assertEqual(
+            ["PLAT-MOB-FIREBASE"],
+            suggest_profile_ids({"cloud": "firebase"}, [], profile_doc_map, platform="mobile"),
+        )
+
+    def test_a_document_for_another_runtime_is_dropped(self):
+        profile_doc_map = {
+            "frameworks": {
+                "network": {"fetch": ["PLAT-WEB-HTTP", "PLAT-WEB-HTTP-BROWSER"]},
+                "runtime": {"static-export": ["PLAT-WEB-NEXT-STATIC"], "server": ["PLAT-WEB-NEXT-APP"]},
+            },
+            "targets": {},
+            "applicability": {
+                "PLAT-WEB-HTTP": {"platform": ["web"], "runtime": ["server"]},
+                "PLAT-WEB-HTTP-BROWSER": {"platform": ["web"], "runtime": ["static-export"]},
+                "PLAT-WEB-NEXT-STATIC": {"platform": ["web"], "runtime": ["static-export"]},
+                "PLAT-WEB-NEXT-APP": {"platform": ["web"], "runtime": ["server"]},
+            },
+        }
+        self.assertEqual(
+            ["PLAT-WEB-HTTP-BROWSER", "PLAT-WEB-NEXT-STATIC"],
+            suggest_profile_ids({"network": "fetch", "runtime": "static-export"}, [], profile_doc_map, platform="web"),
+        )
+        self.assertEqual(
+            ["PLAT-WEB-HTTP", "PLAT-WEB-NEXT-APP"],
+            suggest_profile_ids({"network": "fetch", "runtime": "server"}, [], profile_doc_map, platform="web"),
+        )
+
+    def test_without_applicability_or_a_known_platform_nothing_is_dropped(self):
+        # An older framework's map has no `applicability`, and a detected component may have no
+        # platform or runtime: both keep every document, as before the filter existed.
+        older_map = {"frameworks": {"cloud": {"firebase": ["PLAT-MOB-FIREBASE"]}}, "targets": {}}
+        self.assertEqual(
+            ["PLAT-MOB-FIREBASE"], suggest_profile_ids({"cloud": "firebase"}, [], older_map, platform="web"),
+        )
+        newer_map = {**older_map, "applicability": {"PLAT-MOB-FIREBASE": {"platform": ["mobile"]}}}
+        self.assertEqual(["PLAT-MOB-FIREBASE"], suggest_profile_ids({"cloud": "firebase"}, [], newer_map))
+
     def test_load_profile_doc_map_reads_a_real_file(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)

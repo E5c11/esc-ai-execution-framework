@@ -132,9 +132,11 @@ def import_project_profile(root: Path) -> dict[str, Any] | None:
     targets = profile.get("targets", [])
     if isinstance(targets, str):
         targets = [targets]
+    platform = profile.get("platform")
     return {
         "frameworks": frameworks if isinstance(frameworks, dict) else {},
         "targets": targets if isinstance(targets, list) else [],
+        "platform": platform if isinstance(platform, str) else None,
     }
 
 
@@ -294,7 +296,9 @@ def _architecture_signals(
     profile_doc_map = _load_profile_doc_map(registry_path)
     imported = import_project_profile(root)
     repository_suggestion = (
-        suggest_profile_ids(imported["frameworks"], imported["targets"], profile_doc_map)
+        suggest_profile_ids(
+            imported["frameworks"], imported["targets"], profile_doc_map, platform=imported["platform"],
+        )
         if profile_doc_map is not None and imported is not None
         else []
     )
@@ -446,7 +450,9 @@ def apply_onboarding_answers(
     profile_doc_map = _load_profile_doc_map(registry_path)
     imported = import_project_profile(root)
     repository_suggestion = (
-        suggest_profile_ids(imported["frameworks"], imported["targets"], profile_doc_map)
+        suggest_profile_ids(
+            imported["frameworks"], imported["targets"], profile_doc_map, platform=imported["platform"],
+        )
         if profile_doc_map is not None and imported is not None
         else []
     )
@@ -483,6 +489,7 @@ def apply_onboarding_answers(
             elif (frameworks or targets) and profile_doc_map is not None:
                 suggested = suggest_profile_ids(
                     frameworks, targets, profile_doc_map, architecture_style=architecture_style,
+                    platform=imported["platform"] if imported is not None else None,
                 )
             elif analyzed_suggestion:
                 suggested = refine_profile_ids_for_style(list(analyzed_suggestion), architecture_style, profile_doc_map)
