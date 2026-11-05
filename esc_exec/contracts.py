@@ -241,6 +241,11 @@ def validate_contract(kind: str, path: Path) -> ValidationResult:
             conditions = document.get("completion_conditions")
             if not isinstance(conditions, list) or not conditions:
                 messages.append(prefix + "completion_conditions must be a non-empty list")
+            timeout_minutes = _value_at(document, "execution.timeout_minutes")
+            if timeout_minutes is not None and (
+                isinstance(timeout_minutes, bool) or not isinstance(timeout_minutes, int) or not 1 <= timeout_minutes <= 1440
+            ):
+                messages.append(prefix + "execution.timeout_minutes must be a whole number of minutes from 1 to 1440")
             # The `fix` procedure's root_cause stage (esc_exec.procedures): a fix task is not executable
             # without a well-formed recorded root cause, even if task.yaml was edited by hand.
             root_cause = document.get("root_cause")

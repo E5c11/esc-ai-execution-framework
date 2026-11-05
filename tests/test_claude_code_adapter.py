@@ -59,12 +59,14 @@ class FakeClaudeCodeClient:
         self.prompts: list[str] = []
         self.tool_grants: list[list[str]] = []
         self.resume_ids: list[str | None] = []
+        self.timeouts: list[float | None] = []
 
-    def run(self, directory, prompt, tools, model=None, resume_session_id=None):
+    def run(self, directory, prompt, tools, model=None, resume_session_id=None, timeout=None):
         self.directories.append(directory)
         self.prompts.append(prompt)
         self.tool_grants.append(tools)
         self.resume_ids.append(resume_session_id)
+        self.timeouts.append(timeout)
         return self.messages
 
 
@@ -74,7 +76,7 @@ class FakeNoResultClient(FakeClaudeCodeClient):
 
 
 class FakeRaisingClient(FakeClaudeCodeClient):
-    def run(self, directory, prompt, tools, model=None, resume_session_id=None):
+    def run(self, directory, prompt, tools, model=None, resume_session_id=None, timeout=None):
         raise ClaudeCodeError("claude -p exited 1: rate limited")
 
 
@@ -188,6 +190,37 @@ class ClaudeCodeAdapterTests(unittest.TestCase):
                 session_id="ses-prior",
             )
             self.assertEqual(["ses-prior"], client.resume_ids)
+
+    def test_task_timeout_minutes_is_passed_to_the_client_in_seconds(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            add_route(registry, "repositories", "ampm-backend", self._repository(root))
+            task = load_yaml(examples / "task.yaml")
+            task["execution"]["timeout_minutes"] = 120
+            task_path = root / "task.yaml"
+            write_yaml(task_path, task)
+            client = FakeClaudeCodeClient()
+            ClaudeCodeAdapter(client, registry).execute(
+                task_path, examples / "workspace.yaml", examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            self.assertEqual([7200.0], client.timeouts)
+
+    def test_task_without_timeout_leaves_the_client_default(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            add_route(registry, "repositories", "ampm-backend", self._repository(root))
+            client = FakeClaudeCodeClient()
+            ClaudeCodeAdapter(client, registry).execute(
+                examples / "task.yaml", examples / "workspace.yaml",
+                examples / "adapter-claude-code.yaml", examples / "policy.yaml",
+            )
+            self.assertEqual([None], client.timeouts)
 
     def test_wrong_provider_is_rejected(self):
         framework = Path(__file__).parents[1]
@@ -516,9 +549,9 @@ class WorktreeIsolationTests(unittest.TestCase):
             add_route(registry, "repositories", "ampm-backend", repository)
 
             class EditingClient(FakeClaudeCodeClient):
-                def run(self, directory, prompt, tools, model=None, resume_session_id=None):
+                def run(self, directory, prompt, tools, model=None, resume_session_id=None, timeout=None):
                     (directory / "agent-added-file.txt").write_text("edited\n", encoding="utf-8")
-                    return super().run(directory, prompt, tools, model, resume_session_id)
+                    return super().run(directory, prompt, tools, model, resume_session_id, timeout)
 
             run_dir = ClaudeCodeAdapter(EditingClient(), registry).execute(
                 examples / "task.yaml", self._worktree_workspace(root),
@@ -566,13 +599,13 @@ class WorktreeIsolationTests(unittest.TestCase):
                     super().__init__()
                     self.local_properties_content = None
 
-                def run(self, directory, prompt, tools, model=None, resume_session_id=None):
+                def run(self, directory, prompt, tools, model=None, resume_session_id=None, timeout=None):
                     # Checked mid-run (before finalize_worktree can remove a
                     # no-diff worktree) -- the only reliable moment the copied
                     # file is guaranteed to still be on disk.
                     properties = directory / "local.properties"
                     self.local_properties_content = properties.read_text(encoding="utf-8") if properties.is_file() else None
-                    return super().run(directory, prompt, tools, model, resume_session_id)
+                    return super().run(directory, prompt, tools, model, resume_session_id, timeout)
 
             client = InheritanceCheckingClient()
             ClaudeCodeAdapter(client, registry).execute(
@@ -612,10 +645,10 @@ class WorktreeIsolationTests(unittest.TestCase):
                     super().__init__()
                     self.marker = None
 
-                def run(self, directory, prompt, tools, model=None, resume_session_id=None):
+                def run(self, directory, prompt, tools, model=None, resume_session_id=None, timeout=None):
                     marker = directory / "installed.marker"
                     self.marker = marker.read_text(encoding="utf-8") if marker.is_file() else None
-                    return super().run(directory, prompt, tools, model, resume_session_id)
+                    return super().run(directory, prompt, tools, model, resume_session_id, timeout)
 
             client = SetupCheckingClient()
             ClaudeCodeAdapter(client, registry).execute(
@@ -640,6 +673,30 @@ class WorktreeIsolationTests(unittest.TestCase):
             self.assertIsNone(run["bindings"]["worktree"])
 
     _repository = staticmethod(ClaudeCodeAdapterTests._repository)
+
+
+class ClaudeCodeClientTimeoutTests(unittest.TestCase):
+    _STREAM = '{"type": "result", "subtype": "success", "is_error": false, "result": "ok"}\n'
+
+    def test_run_uses_the_per_call_timeout(self):
+        fake_result = MagicMock(returncode=0, stdout=self._STREAM, stderr="")
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result) as mock_run:
+            ClaudeCodeClient(timeout=3600.0).run(Path("/tmp"), "prompt", ["Read"], timeout=7200.0)
+            self.assertEqual(7200.0, mock_run.call_args.kwargs["timeout"])
+
+    def test_run_falls_back_to_the_client_default(self):
+        fake_result = MagicMock(returncode=0, stdout=self._STREAM, stderr="")
+        with patch("esc_exec.claude_client.subprocess.run", return_value=fake_result) as mock_run:
+            ClaudeCodeClient(timeout=3600.0).run(Path("/tmp"), "prompt", ["Read"])
+            self.assertEqual(3600.0, mock_run.call_args.kwargs["timeout"])
+
+    def test_timeout_message_names_the_effective_limit(self):
+        with patch(
+            "esc_exec.claude_client.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=7200.0),
+        ):
+            with self.assertRaisesRegex(ClaudeCodeError, "timed out after 7200.0s"):
+                ClaudeCodeClient().run(Path("/tmp"), "prompt", ["Read"], timeout=7200.0)
 
 
 class ClaudeCodeClientAskTests(unittest.TestCase):

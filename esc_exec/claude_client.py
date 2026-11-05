@@ -80,7 +80,9 @@ class ClaudeCodeClient:
     def _invoke(
         self, directory: Path, prompt: str, tools: list[str], output_format: str,
         model: str | None = None, resume_session_id: str | None = None, verbose: bool = False,
+        timeout: float | None = None,
     ) -> str:
+        timeout = timeout or self.timeout
         command = [
             self.binary, "-p", "--output-format", output_format,
             "--permission-mode", "bypassPermissions",
@@ -95,19 +97,19 @@ class ClaudeCodeClient:
             command += ["--resume", resume_session_id]
         try:
             result = subprocess.run(
-                command, cwd=directory, input=prompt, capture_output=True, text=True, timeout=self.timeout,
+                command, cwd=directory, input=prompt, capture_output=True, text=True, timeout=timeout,
             )
         except FileNotFoundError as exc:
             raise ClaudeCodeError(f"`{self.binary}` not found -- is Claude Code installed and on PATH?") from exc
         except subprocess.TimeoutExpired as exc:
-            raise ClaudeCodeError(f"claude -p timed out after {self.timeout}s") from exc
+            raise ClaudeCodeError(f"claude -p timed out after {timeout}s") from exc
         if result.returncode != 0:
             raise ClaudeCodeError(f"claude -p exited {result.returncode}: {result.stderr.strip()[:500]}")
         return result.stdout
 
     def run(
         self, directory: Path, prompt: str, tools: list[str],
-        model: str | None = None, resume_session_id: str | None = None,
+        model: str | None = None, resume_session_id: str | None = None, timeout: float | None = None,
     ) -> list[dict[str, Any]]:
         """
         The full-fidelity path: NDJSON message stream (init/assistant/user/result),
@@ -115,7 +117,9 @@ class ClaudeCodeClient:
         matter. `--verbose` is required alongside stream-json in print mode (verified
         live 2026-07-19 against claude-code 2.1.215, undocumented in --help).
         """
-        stdout = self._invoke(directory, prompt, tools, "stream-json", model, resume_session_id, verbose=True)
+        stdout = self._invoke(
+            directory, prompt, tools, "stream-json", model, resume_session_id, verbose=True, timeout=timeout,
+        )
         messages: list[dict[str, Any]] = []
         for line in stdout.splitlines():
             line = line.strip()

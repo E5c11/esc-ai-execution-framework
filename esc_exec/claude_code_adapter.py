@@ -29,6 +29,7 @@ from esc_exec.model import ManifestState
 from esc_exec.registry import resolve_route
 from esc_exec.roadmap import roadmap_prompt_line
 from esc_exec.procedure_prompt import procedure_prompt_lines
+from esc_exec.execution_settings import task_timeout_seconds
 from esc_exec.task_context import build_task_context
 from esc_exec.worktree import (
     copy_inherited_files,
@@ -100,6 +101,7 @@ class ClaudeCodeAdapter:
             messages = self.client.run(
                 execution_root, self._prompt(context, tool_grant, repository), tool_grant,
                 adapter.get("configuration", {}).get("model"), resume_session_id=session_id,
+                timeout=task_timeout_seconds(task_doc),
             )
             outcome = result_message(messages)
             if outcome is None:

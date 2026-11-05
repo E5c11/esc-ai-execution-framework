@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from esc_exec.contracts import validate_contract
+from esc_exec.execution_settings import task_timeout_seconds
 from esc_exec.instructions import build_instruction_bundle
 from esc_exec.json_io import write_json
 from esc_exec.model import ManifestState
@@ -108,20 +109,23 @@ class CodexClient:
     def __init__(self, binary: str = "codex", timeout: float = 1800.0):
         self.binary, self.timeout = binary, timeout
 
-    def run(self, directory: Path, prompt: str, sandbox: str, model: str | None = None) -> list[dict[str, Any]]:
+    def run(
+        self, directory: Path, prompt: str, sandbox: str, model: str | None = None, timeout: float | None = None,
+    ) -> list[dict[str, Any]]:
+        timeout = timeout or self.timeout
         command = [self.binary, "-a", "never", "exec", "-s", sandbox, "--skip-git-repo-check", "--json"]
         if model:
             command += ["-m", model]
         command.append(prompt)
         try:
             result = subprocess.run(
-                command, cwd=directory, capture_output=True, text=True, timeout=self.timeout,
+                command, cwd=directory, capture_output=True, text=True, timeout=timeout,
                 stdin=subprocess.DEVNULL,
             )
         except FileNotFoundError as exc:
             raise CodexError(f"`{self.binary}` not found -- is Codex CLI installed and on PATH?") from exc
         except subprocess.TimeoutExpired as exc:
-            raise CodexError(f"codex exec timed out after {self.timeout}s") from exc
+            raise CodexError(f"codex exec timed out after {timeout}s") from exc
         if result.returncode != 0:
             raise CodexError(f"codex exec exited {result.returncode}: {result.stderr.strip()[:500]}")
         messages: list[dict[str, Any]] = []
@@ -173,6 +177,7 @@ class CodexAdapter:
         try:
             messages = self.client.run(
                 repository, self._prompt(context, sandbox, repository), sandbox, adapter.get("configuration", {}).get("model"),
+                timeout=task_timeout_seconds(task_doc),
             )
             outcome = self._outcome(messages)
             if outcome["is_error"]:

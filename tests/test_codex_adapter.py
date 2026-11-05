@@ -13,7 +13,7 @@ from esc_exec.roadmap import save_project_roadmap
 from esc_exec.manifests import (
     component_manifest_path, component_manifest_relative_path, repository_manifest_path,
 )
-from esc_exec.yaml_io import write_yaml
+from esc_exec.yaml_io import load_yaml, write_yaml
 
 
 def _event_stream(*, thread_id="thread-created", summary="The content component owns lesson publishing.", command_exit_code=0, include_error=False):
@@ -39,10 +39,12 @@ class FakeCodexClient:
         self.messages = messages if messages is not None else _event_stream()
         self.prompts: list[str] = []
         self.sandboxes: list[str] = []
+        self.timeouts: list[float | None] = []
 
-    def run(self, directory, prompt, sandbox, model=None):
+    def run(self, directory, prompt, sandbox, model=None, timeout=None):
         self.prompts.append(prompt)
         self.sandboxes.append(sandbox)
+        self.timeouts.append(timeout)
         return self.messages
 
 
@@ -52,7 +54,7 @@ class FakeNoOutcomeClient(FakeCodexClient):
 
 
 class FakeRaisingClient(FakeCodexClient):
-    def run(self, directory, prompt, sandbox, model=None):
+    def run(self, directory, prompt, sandbox, model=None, timeout=None):
         raise CodexError("codex exec exited 1: rate limited")
 
 
@@ -96,11 +98,29 @@ class CodexAdapterTests(unittest.TestCase):
             run = json.loads((run_dir / "run.json").read_text())
             self.assertEqual("thread-created", run["adapter_metadata"]["thread_id"])
             self.assertEqual("read-only", run["bindings"]["sandbox"])
+            self.assertEqual([None], client.timeouts)
             self.assertIn("content/esc-index.json", client.prompts[0])
             self.assertIn("read-only", client.prompts[0])
             metrics = json.loads((run_dir / "run-metrics.json").read_text())
             self.assertEqual(155, metrics["tokens"]["total"])  # 120 input + 30 output + 5 reasoning
             self.assertEqual(1, metrics["execution"]["tool_calls"])
+
+    def test_task_timeout_minutes_is_passed_to_the_client_in_seconds(self):
+        framework = Path(__file__).parents[1]
+        examples = framework / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registry = root / "registry.yaml"
+            add_route(registry, "repositories", "ampm-backend", self._repository(root))
+            task = load_yaml(examples / "task.yaml")
+            task["execution"]["timeout_minutes"] = 90
+            task_path = root / "task.yaml"
+            write_yaml(task_path, task)
+            client = FakeCodexClient()
+            CodexAdapter(client, registry).execute(
+                task_path, examples / "workspace.yaml", examples / "adapter-codex.yaml", examples / "policy.yaml",
+            )
+            self.assertEqual([5400.0], client.timeouts)
 
     def test_project_roadmap_reaches_the_real_prompt(self):
         """plan/done/project-vision-and-direction.md design 2: parity across

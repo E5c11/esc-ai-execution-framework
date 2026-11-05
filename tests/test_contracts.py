@@ -42,6 +42,19 @@ class ContractTests(unittest.TestCase):
             for result in validate_contract_set(examples)
         ))
 
+    def test_task_timeout_minutes_is_bounded(self):
+        from esc_exec.yaml_io import load_yaml, write_yaml
+        examples = Path(__file__).parents[1] / "examples/contracts"
+        with TemporaryDirectory() as temp:
+            for value, expected in ((120, ManifestState.VALID), (1440, ManifestState.VALID), (0, ManifestState.INVALID),
+                                    (1441, ManifestState.INVALID), ("60", ManifestState.INVALID)):
+                with self.subTest(value=value):
+                    task = load_yaml(examples / "task.yaml")
+                    task["execution"]["timeout_minutes"] = value
+                    path = Path(temp) / "task.yaml"
+                    write_yaml(path, task)
+                    self.assertEqual(expected, validate_contract("task", path).state)
+
     def test_contract_set_rejects_broken_run_reference(self):
         import shutil
         import json
