@@ -352,6 +352,17 @@ def build_verification_plan(repository: Path, task_path: Path, output: Path) -> 
                 final_seen.add(command)
                 final_checks.append(check)
         gate_checks["final"] = final_checks
+    # Repository-wide final checks (esc-execution.yaml `final_checks`) run for every task, whatever its scope or
+    # verification_scope: component profiles only contribute `final` checks for components in scope, so a check that
+    # must always run (such as launching the built app) cannot live in a single component's profile.
+    final_seen = {tuple(check.get("command", [])) for check in gate_checks["final"]}
+    for check in load_yaml(repository_manifest_path(repository)).get("final_checks") or []:
+        command = tuple(check.get("command", []))
+        if not check.get("id") or not command:
+            raise ValueError("esc-execution.yaml contains an invalid final_checks entry")
+        if command not in final_seen:
+            final_seen.add(command)
+            gate_checks["final"].append(check)
     gates = []
     for gate in GATES:
         checks = gate_checks[gate]

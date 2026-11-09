@@ -5,7 +5,7 @@ import unittest
 from esc_exec.contracts import validate_contract
 from esc_exec.dependencies import (
     _project_path_to_accessor, analyze_impact, detect_gradle_frameworks_and_targets,
-    generate_dependency_graph, validate_dependency_graph,
+    generate_dependency_graph, refresh_stale_dependency_graph, validate_dependency_graph,
 )
 from esc_exec.indexing import generate_indexes
 from esc_exec.json_io import load_json
@@ -68,6 +68,18 @@ class DependencyTests(unittest.TestCase):
         with (self.root / "b/build.gradle.kts").open("a", encoding="utf-8") as output:
             output.write("// changed\n")
         self.assertEqual(ManifestState.STALE, validate_dependency_graph(self.root).state)
+
+    def test_refresh_regenerates_a_stale_graph_and_skips_a_valid_one(self):
+        generate_dependency_graph(self.root)
+        self.assertIsNone(refresh_stale_dependency_graph(self.root))
+        with (self.root / "b/build.gradle.kts").open("a", encoding="utf-8") as output:
+            output.write("// changed\n")
+        self.assertIsNotNone(refresh_stale_dependency_graph(self.root))
+        self.assertEqual(ManifestState.VALID, validate_dependency_graph(self.root).state)
+
+    def test_refresh_creates_a_missing_graph(self):
+        self.assertIsNotNone(refresh_stale_dependency_graph(self.root))
+        self.assertEqual(ManifestState.VALID, validate_dependency_graph(self.root).state)
 
     def test_impact_consumers_populate_progressive_gate(self):
         for component in ("a", "b", "c", "d"):

@@ -215,6 +215,18 @@ def validate_dependency_graph(repository: Path) -> ValidationResult:
     return ValidationResult(ManifestState.VALID, str(output), [])
 
 
+def refresh_stale_dependency_graph(repository: Path) -> Path | None:
+    """Regenerate the dependency graph when it is only stale or missing; return its path when it changed.
+
+    Changing a build file or the repository manifest makes the graph stale, which is routine. An INVALID graph
+    (unreadable inputs) needs a person and is left for `analyze_impact` to report.
+    """
+    validation = validate_dependency_graph(repository)
+    if validation.state not in (ManifestState.STALE, ManifestState.INCOMPLETE):
+        return None
+    return generate_dependency_graph(repository)
+
+
 def analyze_impact(repository: Path, source_components: list[str], output: Path | None = None) -> dict[str, Any]:
     validation = validate_dependency_graph(repository)
     if validation.state != ManifestState.VALID:

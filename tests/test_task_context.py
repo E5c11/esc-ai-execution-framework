@@ -194,6 +194,42 @@ class TaskContextTests(unittest.TestCase):
         self.assertEqual(component_checks, final_checks)
         self.assertEqual(ManifestState.VALID, validate_contract("verification-plan", self.root / "plan.json").state)
 
+    def _with_final_checks(self, checks):
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["final_checks"] = checks
+        write_yaml(repository_path, repository)
+
+    def test_repository_final_checks_are_appended_to_every_final_gate(self):
+        generate_gradle_verification_profile(self.root, "content")
+        launch = {"id": "android-launch-check", "command": ["scripts/launch-check.sh"]}
+        self._with_final_checks([launch])
+        generate_indexes(self.root)
+        generate_dependency_graph(self.root)
+        for scope in ("repository", "task"):
+            scoped_task = self.root / f"task-{scope}.yaml"
+            task_document = load_yaml(self.task)
+            task_document["scope"]["verification_scope"] = scope
+            write_yaml(scoped_task, task_document)
+            plan = build_verification_plan(self.root, scoped_task, self.root / "plan.json")
+            final_gate = next(gate for gate in plan["gates"] if gate["id"] == "final")
+            self.assertEqual(launch, final_gate["checks"][-1], scope)
+            self.assertEqual("ready", final_gate["status"], scope)
+            self.assertEqual(ManifestState.VALID, validate_contract("verification-plan", self.root / "plan.json").state)
+
+    def test_repository_final_checks_do_not_duplicate_a_profile_check(self):
+        generate_gradle_verification_profile(self.root, "content")
+        generate_indexes(self.root)
+        generate_dependency_graph(self.root)
+        plan = build_verification_plan(self.root, self.task, self.root / "plan.json")
+        existing = next(gate for gate in plan["gates"] if gate["id"] == "final")["checks"]
+        self._with_final_checks([{"id": "same-command", "command": list(existing[0]["command"])}])
+        generate_indexes(self.root)
+        generate_dependency_graph(self.root)
+        plan = build_verification_plan(self.root, self.task, self.root / "plan.json")
+        final_checks = next(gate for gate in plan["gates"] if gate["id"] == "final")["checks"]
+        self.assertEqual(existing, final_checks)
+
     def test_verification_scope_rejects_unknown_value(self):
         generate_gradle_verification_profile(self.root, "content")
         generate_indexes(self.root)

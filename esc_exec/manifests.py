@@ -100,6 +100,38 @@ def _worktree_inherit_errors(data: dict[str, Any]) -> list[str]:
     return []
 
 
+def _final_checks_errors(data: dict[str, Any]) -> list[str]:
+    """
+    Optional repository-manifest field: verification checks appended to EVERY task's `final` gate, whatever
+    components the task scopes (component profiles only contribute their own `final` checks when the component is
+    in scope). For repository-wide checks such as launching the built app. Each check has the same shape as a
+    profile check: `id`, `command` (argument list) and optional `prerequisites`; `requires` is not allowed, because
+    an input-required final gate would be skipped.
+    """
+    final_checks = data.get("final_checks")
+    if final_checks is None:
+        return []
+    if not isinstance(final_checks, list):
+        return ["final_checks must be a list of checks"]
+    messages: list[str] = []
+    for index, check in enumerate(final_checks):
+        where = f"final_checks[{index}]"
+        if not isinstance(check, dict):
+            messages.append(f"{where} must be a mapping")
+            continue
+        if not isinstance(check.get("id"), str) or not check["id"].strip():
+            messages.append(f"{where}.id must be a non-empty string")
+        command = check.get("command")
+        if not isinstance(command, list) or not command or not all(isinstance(part, str) and part for part in command):
+            messages.append(f"{where}.command must be a non-empty list of non-empty strings")
+        if "requires" in check:
+            messages.append(f"{where} must not declare requires (a final check cannot need task input)")
+        prerequisites = check.get("prerequisites")
+        if prerequisites is not None and not isinstance(prerequisites, list):
+            messages.append(f"{where}.prerequisites must be a list")
+    return messages
+
+
 def _worktree_setup_errors(data: dict[str, Any]) -> list[str]:
     """
     Optional repository-manifest field: commands (argument lists) run in every fresh task worktree before the
@@ -438,6 +470,7 @@ def validate_repository(root: Path, registry_path: Path | None = None) -> list[V
     repo_messages.extend(_architecture_selector_errors(repository))
     repo_messages.extend(_worktree_inherit_errors(repository))
     repo_messages.extend(_worktree_setup_errors(repository))
+    repo_messages.extend(_final_checks_errors(repository))
     repo_messages.extend(_testing_errors(repository))
     repo_messages.extend(_documentation_errors(repository))
     results.append(ValidationResult(

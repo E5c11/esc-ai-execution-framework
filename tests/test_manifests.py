@@ -218,6 +218,39 @@ class ManifestTests(unittest.TestCase):
             self.assertEqual(ManifestState.INVALID, results[0].state, bad)
             self.assertTrue(any("worktree_setup" in message for message in results[0].messages), bad)
 
+    def test_final_checks_valid_list_is_accepted_and_absent_is_valid(self):
+        generate_gradle_manifests(self.root)
+        self.assertNotEqual(ManifestState.INVALID, validate_repository(self.root)[0].state)
+        repository_path = repository_manifest_path(self.root)
+        repository = load_yaml(repository_path)
+        repository["final_checks"] = [{
+            "id": "android-launch-check",
+            "command": ["scripts/launch-check.sh"],
+            "prerequisites": [{"kind": "tcp", "host": "127.0.0.1", "port": 5037}],
+        }]
+        write_yaml(repository_path, repository)
+        self.assertNotEqual(ManifestState.INVALID, validate_repository(self.root)[0].state)
+
+    def test_final_checks_must_be_well_formed(self):
+        generate_gradle_manifests(self.root)
+        repository_path = repository_manifest_path(self.root)
+        bad_values = (
+            "scripts/launch-check.sh",
+            ["scripts/launch-check.sh"],
+            [{"command": ["x"]}],
+            [{"id": "a", "command": []}],
+            [{"id": "a", "command": "x"}],
+            [{"id": "a", "command": ["x"], "requires": ["test_filter"]}],
+            [{"id": "a", "command": ["x"], "prerequisites": "tcp"}],
+        )
+        for bad in bad_values:
+            repository = load_yaml(repository_path)
+            repository["final_checks"] = bad
+            write_yaml(repository_path, repository)
+            results = validate_repository(self.root)
+            self.assertEqual(ManifestState.INVALID, results[0].state, bad)
+            self.assertTrue(any("final_checks" in message for message in results[0].messages), bad)
+
     def test_worktree_inherit_non_list_is_invalid(self):
         generate_gradle_manifests(self.root)
         repository_path = repository_manifest_path(self.root)
