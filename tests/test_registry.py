@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from esc_exec.model import ManifestState
 from esc_exec.registry import (
+    run_hook_command,
     RENAMED_FRAMEWORK_IDS, active_provider, add_ecosystem, add_route, default_policy_id,
     default_registry_path, migrate_legacy_registry, resolve_route, set_default_policy,
     set_provider, validate_registry,
@@ -256,6 +257,44 @@ class RegistryTests(unittest.TestCase):
             self.assertEqual(ManifestState.INVALID, result.state)
             self.assertTrue(any("default_policy must be a non-empty string" in message for message in result.messages))
 
+
+    def test_run_complete_hook_is_read_and_valid(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            write_yaml(registry, {
+                "schema_version": 1, "repositories": {}, "frameworks": {},
+                "hooks": {"on_run_complete": ["notify-send", "esc-ai"]},
+            })
+            self.assertNotEqual(ManifestState.INVALID, validate_registry(registry).state)
+            self.assertEqual(["notify-send", "esc-ai"], run_hook_command(registry, "on_run_complete"))
+
+    def test_no_hook_configured_returns_none(self):
+        with TemporaryDirectory() as temp:
+            registry = Path(temp) / "system.yaml"
+            write_yaml(registry, {"schema_version": 1, "repositories": {}, "frameworks": {}})
+            self.assertIsNone(run_hook_command(registry, "on_run_complete"))
+            self.assertIsNone(run_hook_command(Path(temp) / "missing.yaml", "on_run_complete"))
+
+    def test_unknown_hook_event_is_rejected(self):
+        with TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ValueError, "unknown hook event"):
+                run_hook_command(Path(temp) / "system.yaml", "on_lunch")
+
+    def test_malformed_hooks_in_file_are_invalid(self):
+        bad_values = (
+            ["notify-send"],
+            {"on_run_complete": "notify-send esc-ai"},
+            {"on_run_complete": []},
+            {"on_run_complete": ["notify-send", ""]},
+            {"on_lunch": ["x"]},
+        )
+        for bad in bad_values:
+            with TemporaryDirectory() as temp:
+                registry = Path(temp) / "system.yaml"
+                write_yaml(registry, {"schema_version": 1, "repositories": {}, "frameworks": {}, "hooks": bad})
+                result = validate_registry(registry)
+                self.assertEqual(ManifestState.INVALID, result.state, bad)
+                self.assertTrue(any("hooks" in message for message in result.messages), bad)
 
 if __name__ == "__main__":
     unittest.main()

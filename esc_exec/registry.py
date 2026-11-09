@@ -155,6 +155,35 @@ def default_policy_id(path: Path) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+HOOK_EVENTS: tuple[str, ...] = ("on_run_complete",)
+
+
+def run_hook_command(path: Path, event: str) -> list[str] | None:
+    """
+    The machine-local command (an argument list) configured for `event` under `hooks`, or None. Machine-local on
+    purpose: how a person wants to hear that a run finished (a desktop notification, a message to another machine)
+    belongs to the machine, not to any repository.
+    """
+    if event not in HOOK_EVENTS:
+        raise ValueError(f"unknown hook event `{event}`; known events: {', '.join(HOOK_EVENTS)}")
+    command = (read_registry(path).get("hooks") or {}).get(event)
+    return list(command) if command else None
+
+
+def _hooks_errors(hooks: Any) -> list[str]:
+    if hooks is None:
+        return []
+    if not isinstance(hooks, dict):
+        return ["hooks must be a mapping of event to command"]
+    messages: list[str] = []
+    for event, command in hooks.items():
+        if event not in HOOK_EVENTS:
+            messages.append(f"hooks.{event} must be a known hook event ({', '.join(HOOK_EVENTS)})")
+        elif not isinstance(command, list) or not command or not all(isinstance(part, str) and part for part in command):
+            messages.append(f"hooks.{event} must be a non-empty list of non-empty strings (an argument list)")
+    return messages
+
+
 def resolve_route(path: Path, category: str, route_id: str) -> Path:
     data = read_registry(path)
     route = data.get(category, {}).get(route_id)
@@ -196,7 +225,7 @@ def validate_registry(path: Path) -> ValidationResult:
         messages.append("schema_version must be 1")
     known_top_level = {
         "schema_version", "repositories", "frameworks", "ecosystems",
-        "orchestrator", "ui", "credentials", "providers", "default_policy",
+        "orchestrator", "ui", "credentials", "providers", "default_policy", "hooks",
     }
     unknown = sorted(set(data) - known_top_level)
     for key in unknown:
@@ -246,6 +275,7 @@ def validate_registry(path: Path) -> ValidationResult:
             not isinstance(credentials["provider"], str) or not credentials["provider"].strip()
         ):
             messages.append("credentials.provider must be a non-empty string naming the provider")
+    messages.extend(_hooks_errors(data.get("hooks")))
     default_policy = data.get("default_policy")
     if default_policy is not None and (not isinstance(default_policy, str) or not default_policy.strip()):
         messages.append("default_policy must be a non-empty string naming a policy profile")
