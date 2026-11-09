@@ -8,7 +8,7 @@
 #   entrypoint  : __main__, cli
 #   application : conversation, onboarding, ai_suggestions
 #   gateways    : claude_code_adapter, claude_client, codex_adapter, opencode_adapter,
-#                 verification_execution, worktree, environment  (processes, network, git)
+#                 verification_execution, worktree, environment, processes  (processes, network, git)
 #   core        : everything else -- manifests, indexing, planning, contracts, procedures, ...
 
 [importlinter]
@@ -77,6 +77,7 @@ forbidden_modules =
     esc_exec.verification_execution
     esc_exec.worktree
     esc_exec.environment
+    esc_exec.processes
 
 [importlinter:contract:core-does-no-io]
 name = Core modules run no processes and open no sockets or databases
