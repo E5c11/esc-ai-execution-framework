@@ -272,6 +272,30 @@ def validate_indexes(root: Path) -> list[ValidationResult]:
     return results
 
 
+def refresh_stale_indexes(root: Path) -> list[Path]:
+    """Regenerate the indexes when they are only out of date, and return the files that changed.
+
+    Indexes go stale whenever a merged change adds or removes source files, because the digest covers the
+    file inventory. That is routine, so it should not block a run. Only STALE and INCOMPLETE (missing)
+    results are repaired. An INVALID result (unreadable manifests or indexes) needs a person and is left
+    for the caller's validation to report. Unlike onboarding's apply step, this writes the esc-index.json
+    files only; manifests, and the comments in them, are never touched.
+    """
+    root = root.resolve()
+    results = validate_indexes(root)
+    bad = [result for result in results if result.state != ManifestState.VALID]
+    if not bad or any(result.state == ManifestState.INVALID for result in bad):
+        return []
+    before = {path: path.read_bytes() for path in _index_paths(root) if path.exists()}
+    written = generate_indexes(root)
+    return [path for path in written if before.get(path) != path.read_bytes()]
+
+
+def _index_paths(root: Path) -> list[Path]:
+    _, component_indexes = build_indexes(root)
+    return [root / ESC_AI_DIR / INDEX_FILE, *(path for path, _ in component_indexes)]
+
+
 @dataclass(frozen=True)
 class Match:
     component_id: str

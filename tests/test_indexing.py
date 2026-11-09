@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from esc_exec.indexing import generate_indexes, match_components, validate_indexes
+from esc_exec.indexing import generate_indexes, match_components, refresh_stale_indexes, validate_indexes
 from esc_exec.manifests import component_manifest_path, generate_gradle_manifests
 from esc_exec.model import ManifestState
 from esc_exec.yaml_io import load_yaml, write_yaml
@@ -62,6 +62,42 @@ class IndexingTests(unittest.TestCase):
         new_controller.write_text("", encoding="utf-8")
         results = validate_indexes(self.root)
         self.assertTrue(any(result.state == ManifestState.STALE for result in results))
+
+    def test_refresh_regenerates_only_changed_stale_indexes(self):
+        generate_indexes(self.root)
+        auth_index = self.root / ".esc-ai/components/auth/esc-index.json"
+        content_index = self.root / ".esc-ai/components/content/esc-index.json"
+        content_before = content_index.read_bytes()
+        (self.root / "auth/src/main/kotlin/com/example/backend/auth/TokenService.kt").write_text("", encoding="utf-8")
+
+        changed = refresh_stale_indexes(self.root)
+
+        self.assertIn(auth_index, changed)
+        self.assertIn(self.root / ".esc-ai/esc-index.json", changed)
+        self.assertNotIn(content_index, changed)
+        self.assertEqual(content_before, content_index.read_bytes())
+        self.assertTrue(all(r.state == ManifestState.VALID for r in validate_indexes(self.root)))
+
+    def test_refresh_does_nothing_when_indexes_are_valid(self):
+        generate_indexes(self.root)
+        self.assertEqual([], refresh_stale_indexes(self.root))
+
+    def test_refresh_creates_missing_indexes(self):
+        changed = refresh_stale_indexes(self.root)
+        self.assertEqual(3, len(changed))
+        self.assertTrue(all(r.state == ManifestState.VALID for r in validate_indexes(self.root)))
+
+    def test_refresh_leaves_invalid_indexes_alone(self):
+        generate_indexes(self.root)
+        root_index = self.root / ".esc-ai/esc-index.json"
+        root_index.write_text("{not json", encoding="utf-8")
+        component_index = self.root / ".esc-ai/components/auth/esc-index.json"
+        (self.root / "auth/src/main/kotlin/com/example/backend/auth/TokenService.kt").write_text("", encoding="utf-8")
+        component_before = component_index.read_bytes()
+
+        self.assertEqual([], refresh_stale_indexes(self.root))
+        self.assertEqual("{not json", root_index.read_text(encoding="utf-8"))
+        self.assertEqual(component_before, component_index.read_bytes())
 
     def test_inventory_contains_entry_points_and_role_counts(self):
         generate_indexes(self.root)
